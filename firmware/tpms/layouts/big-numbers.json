@@ -1,0 +1,25 @@
+{
+  "name": "ตัวเลขใหญ่ อ่านง่ายขณะขับ",
+  "bg": "#000000",
+  "items": [
+    {"type": "box", "x": 0, "y": 0, "w": 159, "h": 119, "r": 0, "bg": "{fl.color}", "pair": "fl"},
+    {"type": "text", "x": 0, "y": 4, "w": 159, "align": "center", "font": 16, "color": "#000000", "text": "{fl.name}"},
+    {"type": "text", "x": 0, "y": 34, "w": 159, "align": "center", "font": 48, "color": "#000000", "text": "{fl.p}"},
+    {"type": "text", "x": 0, "y": 94, "w": 159, "align": "center", "font": 16, "color": "#000000", "text": "{fl.temp}°C"},
+
+    {"type": "box", "x": 161, "y": 0, "w": 159, "h": 119, "r": 0, "bg": "{fr.color}", "pair": "fr"},
+    {"type": "text", "x": 161, "y": 4, "w": 159, "align": "center", "font": 16, "color": "#000000", "text": "{fr.name}"},
+    {"type": "text", "x": 161, "y": 34, "w": 159, "align": "center", "font": 48, "color": "#000000", "text": "{fr.p}"},
+    {"type": "text", "x": 161, "y": 94, "w": 159, "align": "center", "font": 16, "color": "#000000", "text": "{fr.temp}°C"},
+
+    {"type": "box", "x": 0, "y": 121, "w": 159, "h": 119, "r": 0, "bg": "{rl.color}", "pair": "rl"},
+    {"type": "text", "x": 0, "y": 125, "w": 159, "align": "center", "font": 16, "color": "#000000", "text": "{rl.name}"},
+    {"type": "text", "x": 0, "y": 155, "w": 159, "align": "center", "font": 48, "color": "#000000", "text": "{rl.p}"},
+    {"type": "text", "x": 0, "y": 215, "w": 159, "align": "center", "font": 16, "color": "#000000", "text": "{rl.temp}°C"},
+
+    {"type": "box", "x": 161, "y": 121, "w": 159, "h": 119, "r": 0, "bg": "{rr.color}", "pair": "rr"},
+    {"type": "text", "x": 161, "y": 125, "w": 159, "align": "center", "font": 16, "color": "#000000", "text": "{rr.name}"},
+    {"type": "text", "x": 161, "y": 155, "w": 159, "align": "center", "font": 48, "color": "#000000", "text": "{rr.p}"},
+    {"type": "text", "x": 161, "y": 215, "w": 159, "align": "center", "font": 16, "color": "#000000", "text": "{rr.temp}°C"}
+  ]
+}

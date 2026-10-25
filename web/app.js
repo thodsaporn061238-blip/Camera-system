@@ -4,6 +4,7 @@ import {
 } from './camtool.js';
 import { AT_QUICK, CONSOLE_QUICK, renderQuick } from './commands.js';
 import { identify } from './devices.js';
+import { initDesigner } from './designer.js';
 import { initTpms, lineSplitter } from './tpms.js';
 import { createZip, readZip } from './zip.js';
 
@@ -77,6 +78,7 @@ async function openPort(p) {
   } catch {
     startLog();
     if ($('auto-reset').checked) await resetBoard();
+    else sendJsonLine({ hello: true }); // ถามโปรแกรม SNP TPMS ที่ทำงานอยู่แล้วโดยไม่รีเซ็ต
     setStatus(`${label} ไม่ตอบคำสั่ง AT จึงเปิดดูข้อความจากบอร์ดในขั้นที่ 7 ให้แล้ว`, 'warn');
     $('console-section').scrollIntoView({ behavior: 'smooth' });
   }
@@ -113,6 +115,7 @@ async function disconnect() {
   } catch {
     // ปิดไปแล้ว
   }
+  tpmsReady = false;
   setConnected(false);
   setStatus('ยังไม่ได้เชื่อมต่อ');
 }
@@ -409,8 +412,37 @@ $('esp-write').onclick = () => {
 };
 
 // ขั้นที่ 9: โปรแกรม SNP TPMS (ไฟล์ firmware/snp-tpms.bin สร้างโดย GitHub Actions จาก firmware/tpms)
-const tpms = initTpms((cmd) => port && !busy && client.transport.write(new TextEncoder().encode(`${JSON.stringify(cmd)}\n`)));
-const tpmsLines = lineSplitter((obj) => tpms.onMessage(obj));
+const sendJsonLine = (cmd) => port && !busy && client.transport.write(new TextEncoder().encode(`${JSON.stringify(cmd)}\n`));
+const tpms = initTpms(sendJsonLine);
+
+// ส่งคำสั่งแล้วรอคำตอบที่ match ตรง (ใช้กับไฟล์ออกแบบและไฟล์ในบอร์ด)
+const waiters = new Set();
+function request(cmd, match, timeout = 5000) {
+  return new Promise((resolve, reject) => {
+    if (!port || busy) {
+      reject(new Error('ยังไม่ได้เชื่อมต่อ หรือกำลังทำงานอื่นอยู่'));
+      return;
+    }
+    const w = { match, resolve, timer: setTimeout(() => waiters.delete(w) && reject(new Error('หมดเวลารอ')), timeout) };
+    waiters.add(w);
+    sendJsonLine(cmd);
+  });
+}
+
+let tpmsReady = false;
+const designer = initDesigner({ request, isReady: () => !!port && tpmsReady });
+const tpmsLines = lineSplitter((obj) => {
+  if (obj.hello?.app === 'snp-tpms') tpmsReady = !!obj.hello.layout;
+  tpms.onMessage(obj);
+  designer.onMessage(obj);
+  for (const w of waiters) {
+    if (w.match(obj)) {
+      clearTimeout(w.timer);
+      waiters.delete(w);
+      w.resolve(obj);
+    }
+  }
+});
 
 $('tpms-install').onclick = async () => {
   let data;

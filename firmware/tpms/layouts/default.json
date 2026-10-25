@@ -1,0 +1,29 @@
+{
+  "name": "หน้าจอลมยาง 4 ล้อ (เริ่มต้น)",
+  "bg": "{c.bg}",
+  "items": [
+    {"type": "box", "x": 2, "y": 2, "w": 124, "h": 112, "r": 10, "bg": "{c.tile}", "border": "{fl.border}", "bw": 2, "pair": "fl"},
+    {"type": "text", "x": 8, "y": 6, "w": 112, "align": "center", "font": 16, "color": "{c.text}", "text": "{fl.name} ({unit})", "scroll": true},
+    {"type": "text", "x": 2, "y": 30, "w": 124, "align": "center", "font": 48, "color": "{fl.color}", "text": "{fl.p}"},
+    {"type": "text", "x": 8, "y": 90, "w": 112, "align": "center", "font": 16, "color": "{c.text}", "text": "{fl.info}", "scroll": true},
+
+    {"type": "box", "x": 194, "y": 2, "w": 124, "h": 112, "r": 10, "bg": "{c.tile}", "border": "{fr.border}", "bw": 2, "pair": "fr"},
+    {"type": "text", "x": 200, "y": 6, "w": 112, "align": "center", "font": 16, "color": "{c.text}", "text": "{fr.name} ({unit})", "scroll": true},
+    {"type": "text", "x": 194, "y": 30, "w": 124, "align": "center", "font": 48, "color": "{fr.color}", "text": "{fr.p}"},
+    {"type": "text", "x": 200, "y": 90, "w": 112, "align": "center", "font": 16, "color": "{c.text}", "text": "{fr.info}", "scroll": true},
+
+    {"type": "box", "x": 2, "y": 126, "w": 124, "h": 112, "r": 10, "bg": "{c.tile}", "border": "{rl.border}", "bw": 2, "pair": "rl"},
+    {"type": "text", "x": 8, "y": 130, "w": 112, "align": "center", "font": 16, "color": "{c.text}", "text": "{rl.name} ({unit})", "scroll": true},
+    {"type": "text", "x": 2, "y": 154, "w": 124, "align": "center", "font": 48, "color": "{rl.color}", "text": "{rl.p}"},
+    {"type": "text", "x": 8, "y": 214, "w": 112, "align": "center", "font": 16, "color": "{c.text}", "text": "{rl.info}", "scroll": true},
+
+    {"type": "box", "x": 194, "y": 126, "w": 124, "h": 112, "r": 10, "bg": "{c.tile}", "border": "{rr.border}", "bw": 2, "pair": "rr"},
+    {"type": "text", "x": 200, "y": 130, "w": 112, "align": "center", "font": 16, "color": "{c.text}", "text": "{rr.name} ({unit})", "scroll": true},
+    {"type": "text", "x": 194, "y": 154, "w": 124, "align": "center", "font": 48, "color": "{rr.color}", "text": "{rr.p}"},
+    {"type": "text", "x": 200, "y": 214, "w": 112, "align": "center", "font": 16, "color": "{c.text}", "text": "{rr.info}", "scroll": true},
+
+    {"type": "text", "x": 127, "y": 6, "w": 66, "align": "center", "font": 24, "color": "{c.text}", "text": "{title}", "scroll": true},
+    {"type": "box", "x": 140, "y": 68, "w": 40, "h": 120, "r": 14, "bg": "{c.tile}", "border": "{c.text}", "bw": 2},
+    {"type": "text", "x": 127, "y": 218, "w": 66, "align": "center", "font": 16, "color": "{c.text}", "text": "{status}", "scroll": true}
+  ]
+}

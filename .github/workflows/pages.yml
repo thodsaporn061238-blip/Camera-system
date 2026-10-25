@@ -29,10 +29,12 @@ jobs:
           python-version: "3.12"
       - run: node --test web/test/*.test.mjs
       - run: python -m unittest
-      - name: ทดสอบตัวแปลงข้อมูลเซนเซอร์ลมยาง
+      - name: ทดสอบโค้ดบอร์ดบนคอมพิวเตอร์ (ตัวแปลงเซนเซอร์, ไฟล์ออกแบบหน้าจอ)
         run: |
           g++ -std=c++17 -Wall -Werror -Ifirmware/tpms/src firmware/tpms/test/test_decode.cpp firmware/tpms/src/tpms_decode.cpp -o /tmp/test_decode
           /tmp/test_decode
+          g++ -std=c++17 -Wall -Werror -Ifirmware/tpms/src firmware/tpms/test/test_layout.cpp firmware/tpms/src/layout_bind.cpp -o /tmp/test_layout
+          /tmp/test_layout
 
   firmware:
     runs-on: ubuntu-latest
@@ -66,7 +68,7 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
-      - run: mkdir site && cp -r web/*.html web/*.js web/vendor site/
+      - run: mkdir site && cp -r web/*.html web/*.js web/vendor site/ && cp -r firmware/tpms/layouts site/layouts
       - uses: actions/download-artifact@v4
         with:
           name: snp-tpms

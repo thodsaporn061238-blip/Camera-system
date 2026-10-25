@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Camera System</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
   :root {
     --bg: #f5f6f8; --card: #ffffff; --text: #1d2330; --muted: #5d6677; --line: #dde1e8;
@@ -72,6 +72,15 @@
   }
   input[type=color] { width: 40px; height: 30px; border: 1px solid var(--line); border-radius: 6px; padding: 0; background: none; }
   #tpms-sensors td { white-space: pre-line; }
+  .designer { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 12px; margin-top: 10px; }
+  @media (max-width: 760px) { .designer { grid-template-columns: 1fr; } }
+  #layout-json {
+    width: 100%; min-height: 420px; resize: vertical; font: 12px/1.45 ui-monospace, Consolas, monospace;
+    background: var(--code); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 10px;
+  }
+  .preview { width: 320px; max-width: 100%; aspect-ratio: 4 / 3; border-radius: 6px; border: 6px solid #222; background: #000; }
+  .small { font-size: 13px; }
+  .file-btn { border: 1px solid var(--line); border-radius: 8px; padding: 8px 14px; cursor: pointer; }
   a { color: var(--accent); }
 </style>
 </head>
@@ -247,6 +256,48 @@
         </div>
         <table id="tpms-sensors"></table>
       </div>
+    </section>
+
+    <section class="card">
+      <h2>10. ออกแบบหน้าจอ (เห็นผลบนจอทันที)</h2>
+      <p class="muted">แก้ไฟล์ออกแบบด้านล่าง ภาพตัวอย่างและจอจริงจะเปลี่ยนตามทันที (ออกแบบได้แม้ยังไม่ต่อจอ) พอใจแล้วกด "บันทึกลงจอ" ใช้ได้กับโปรแกรม SNP TPMS (ขั้นที่ 9)
+        <b>อยากแก้เป็นภาษาไทย</b> ให้พิมพ์บอก Claude ในแชท เช่น "ทำตัวเลขล้อหน้าซ้ายสีฟ้า" แล้วเลือกแม่แบบที่ Claude เพิ่มให้จากรายการ
+        ตัวแปรที่ใช้ได้ดูใน <a href="https://github.com/thodsaporn061238-blip/Camera-system/blob/main/docs/LAYOUT.md" target="_blank" rel="noopener">คู่มือไฟล์ออกแบบ</a></p>
+      <div class="row">
+        <select id="layout-template" aria-label="แม่แบบหน้าจอ"><option value="">กำลังโหลดแม่แบบ...</option></select>
+        <button id="layout-from-device">โหลดหน้าจอจากจอ</button>
+        <label class="file-btn">เปิดไฟล์ .json <input id="layout-open" type="file" accept=".json" hidden></label>
+        <button id="layout-download">ดาวน์โหลดไฟล์ออกแบบ</button>
+      </div>
+      <div class="designer">
+        <textarea id="layout-json" spellcheck="false" aria-label="ไฟล์ออกแบบหน้าจอ (JSON)"></textarea>
+        <div>
+          <canvas id="layout-preview" class="preview"></canvas>
+          <div class="muted small" id="layout-xy">ตำแหน่งเมาส์ x=- y=-</div>
+          <label class="muted small"><input id="layout-sample" type="checkbox" checked> ใช้ค่าตัวอย่างเมื่อยังไม่มีเซนเซอร์จริง</label>
+        </div>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <label><input id="layout-live" type="checkbox" checked> ส่งไปที่จอทันทีที่แก้</label>
+        <button id="layout-send">ส่งไปที่จอ</button>
+        <button id="layout-save" class="primary">บันทึกลงจอ</button>
+        <button id="layout-reset">คืนหน้าจอเริ่มต้น</button>
+      </div>
+      <p id="layout-msg" class="status" style="margin-top:8px"></p>
+    </section>
+
+    <section class="card needs-port">
+      <h2>11. ไฟล์ในบอร์ด</h2>
+      <p class="muted">ดูไฟล์ทั้งหมดที่เก็บในบอร์ด (โปรแกรม SNP TPMS) ดาวน์โหลด คัดลอก ลบ หรือเอาไฟล์จากคอมพิวเตอร์เขียนลงบอร์ด
+        หน้าจอที่บันทึกไว้อยู่ในไฟล์ <code>/layout.json</code></p>
+      <div class="row">
+        <button id="files-list" class="primary">ดูไฟล์ทั้งหมด</button>
+        <button id="files-pull">ดึงไฟล์ทั้งหมด (.zip)</button>
+        <label class="file-btn">เขียนไฟล์ลงบอร์ด <input id="files-upload" type="file" multiple hidden></label>
+        <button id="files-reload">ใช้ไฟล์ layout.json ในบอร์ด</button>
+      </div>
+      <p id="files-msg" class="status" style="margin-top:8px"></p>
+      <table id="files-table"></table>
     </section>
   </div>
 </main>
