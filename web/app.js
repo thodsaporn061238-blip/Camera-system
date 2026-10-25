@@ -2,6 +2,7 @@
 import {
   ATClient, ATError, ATTimeout, INFO_COMMANDS, backup, gpsFix, readInfo, readableScore, restore,
 } from './camtool.js';
+import { AT_QUICK, CONSOLE_QUICK, renderQuick } from './commands.js';
 import { createZip, readZip } from './zip.js';
 
 const $ = (id) => document.getElementById(id);
@@ -207,10 +208,19 @@ $('at-send').onclick = () => {
   });
 };
 $('at-cmd').addEventListener('keydown', (e) => e.key === 'Enter' && $('at-send').click());
+renderQuick($('at-quick'), AT_QUICK, (item) => {
+  $('at-cmd').value = item.cmd;
+  if (item.danger) {
+    $('at-cmd').focus();
+    logger($('at-log'))(`ใส่คำสั่ง ${item.cmd} ในช่องแล้ว ตรวจหรือแก้ค่า แล้วกด "ส่ง" เอง`);
+  } else {
+    $('at-send').click();
+  }
+});
 
 let logBytes = [];
 let logTail = new Uint8Array();
-$('log-start').onclick = () => {
+function startLog() {
   logBytes = [];
   logTail = new Uint8Array();
   $('log-view').textContent = '';
@@ -225,7 +235,8 @@ $('log-start').onclick = () => {
   };
   $('log-start').disabled = true;
   $('log-stop').disabled = false;
-};
+}
+$('log-start').onclick = startLog;
 $('log-stop').onclick = () => {
   rawListener = null;
   $('log-start').disabled = false;
@@ -236,6 +247,49 @@ $('log-save').onclick = () => {
   const stamp = new Date().toISOString().replace(/[-:]/g, '').replace('T', '-').slice(0, 15);
   download(`console_${stamp}.log`, new Blob(logBytes));
 };
+
+// ส่งข้อความเข้าชิปหลักผ่านจุด TX/RX (เริ่มบันทึก log ให้เองถ้ายังไม่ได้เริ่ม จะได้เห็นคำตอบ)
+async function sendConsole(text) {
+  if (!port || busy) return;
+  if (!rawListener) startLog();
+  await client.transport.write(new TextEncoder().encode(text));
+}
+
+const EOL = { cr: '\r', lf: '\n', crlf: '\r\n' };
+const eol = () => EOL[$('console-eol').value];
+
+$('console-send').onclick = () => {
+  sendConsole($('console-cmd').value + eol());
+  $('console-cmd').select();
+};
+$('console-cmd').addEventListener('keydown', (e) => e.key === 'Enter' && $('console-send').click());
+
+let repeatTimer = null;
+renderQuick($('console-quick'), CONSOLE_QUICK, (item, button) => {
+  if (item.repeat) {
+    if (repeatTimer) return;
+    const label = button.textContent;
+    const end = Date.now() + item.repeat * 1000;
+    repeatTimer = setInterval(() => {
+      const left = Math.ceil((end - Date.now()) / 1000);
+      if (left <= 0 || !port) {
+        clearInterval(repeatTimer);
+        repeatTimer = null;
+        button.textContent = label;
+        return;
+      }
+      button.textContent = `กำลังกด... เหลือ ${left} วินาที`;
+      sendConsole(item.key);
+    }, 100);
+  } else if (item.key) {
+    sendConsole(item.key);
+  } else if (item.danger) {
+    $('console-cmd').value = item.cmd;
+    $('console-cmd').focus();
+  } else {
+    sendConsole(item.cmd + eol());
+  }
+});
 
 if (!('serial' in navigator)) {
   $('unsupported').hidden = false;

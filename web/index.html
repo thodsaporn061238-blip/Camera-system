@@ -56,6 +56,12 @@
   .banner { border-left: 4px solid var(--warn); }
   .locked .needs-port { opacity: .45; pointer-events: none; }
   ol { margin: 0; padding-left: 22px; }
+  h3 { font-size: 16px; margin: 18px 0 4px; }
+  code { font: 14px ui-monospace, Consolas, monospace; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 10px; }
+  .chips .group { width: 100%; font-size: 14px; color: var(--muted); margin-top: 4px; }
+  .chips button { padding: 4px 10px; font-size: 14px; border-radius: 999px; }
+  .chips button.danger { border-color: var(--warn); color: var(--warn); }
   a { color: var(--accent); }
 </style>
 </head>
@@ -123,7 +129,9 @@
     </section>
 
     <section class="card needs-port">
-      <h2>6. ส่งคำสั่ง AT เอง</h2>
+      <h2>6. ส่งคำสั่ง AT (โมดูล 4G)</h2>
+      <p class="muted">กดปุ่มสำเร็จรูป หรือพิมพ์คำสั่งเองแล้วกด Enter ปุ่มสีส้มจะเปลี่ยนค่าในกล้อง ต้องสำรองข้อมูลก่อน</p>
+      <div id="at-quick" class="chips"></div>
       <div class="row">
         <input id="at-cmd" type="text" value="ATI" aria-label="คำสั่ง AT">
         <button id="at-send">ส่ง</button>
@@ -132,7 +140,7 @@
     </section>
 
     <section class="card needs-port">
-      <h2>7. บันทึก log ตอนบูต (จุด TX/RX บนบอร์ด)</h2>
+      <h2>7. log ตอนบูต และสั่งงานชิปหลัก (จุด TX/RX บนบอร์ด)</h2>
       <p class="muted">ใช้สาย USB-TTL แบบ 3.3V ต่อ GND, TX กล้อง → RX สาย, RX กล้อง → TX สาย เชื่อมต่อที่ความเร็ว 115200 แล้วกดเริ่ม จากนั้นเสียบไฟกล้องใหม่
         ถ้าตัวอักษรอ่านไม่ออก ให้ตัดการเชื่อมต่อแล้วลองความเร็วอื่น</p>
       <div class="row">
@@ -142,6 +150,17 @@
         <span id="log-score" class="muted"></span>
       </div>
       <pre id="log-view"></pre>
+      <h3>พิมพ์คำสั่งเข้าชิปหลัก</h3>
+      <p class="muted">ใช้ได้เมื่อบอร์ดเปิดช่องรับคำสั่งไว้ (log จะขึ้น <code>=&gt;</code> หรือ <code>#</code> หรือ <code>login:</code>)
+        ถ้าอยากเข้า U-Boot ให้กด "กด Enter รัว 10 วินาที" แล้วเสียบไฟกล้องใหม่ทันที</p>
+      <div id="console-quick" class="chips"></div>
+      <div class="row">
+        <input id="console-cmd" type="text" aria-label="คำสั่งเข้าชิปหลัก" placeholder="พิมพ์คำสั่ง แล้วกด Enter">
+        <select id="console-eol" aria-label="ตัวจบบรรทัด">
+          <option value="cr">CR</option><option value="lf">LF</option><option value="crlf">CR+LF</option>
+        </select>
+        <button id="console-send">ส่ง</button>
+      </div>
     </section>
   </div>
 </main>
