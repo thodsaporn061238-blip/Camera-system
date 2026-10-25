@@ -2,3 +2,8 @@ __pycache__/
 *.pyc
 backups/
 *.log
+# ไฟล์ที่สร้างตอน build โปรแกรมจอ TPMS (สร้างใหม่ได้ด้วย tools/gen_fonts.sh และ pio run)
+firmware/tpms/.pio/
+firmware/tpms/src/fonts/
+build/
+*.bin
