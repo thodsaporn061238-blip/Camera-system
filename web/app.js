@@ -4,6 +4,7 @@ import {
 } from './camtool.js';
 import { AT_QUICK, CONSOLE_QUICK, renderQuick } from './commands.js';
 import { identify } from './devices.js';
+import { initTpms, lineSplitter } from './tpms.js';
 import { createZip, readZip } from './zip.js';
 
 const $ = (id) => document.getElementById(id);
@@ -37,6 +38,7 @@ async function readLoop() {
         if (done) break;
         client.feed(value);
         rawListener?.(value);
+        tpmsLines(value);
       }
     } catch {
       // สายหลุดหรือปิดพอร์ต
@@ -403,6 +405,29 @@ $('esp-write').onclick = () => {
     logger($('esp-log'))(`กำลังลง ${file.name} (${data.length} ไบต์) ที่ ${where} ห้ามถอดสาย`);
     await esp.writeImage(loader, data, address, onProgress);
     logger($('esp-log'))('ลงโปรแกรมเสร็จ บอร์ดจะรีสตาร์ทเอง ดู log ตอนบูตได้ในขั้นที่ 7');
+  });
+};
+
+// ขั้นที่ 9: โปรแกรม SNP TPMS (ไฟล์ firmware/snp-tpms.bin สร้างโดย GitHub Actions จาก firmware/tpms)
+const tpms = initTpms((cmd) => port && !busy && client.transport.write(new TextEncoder().encode(`${JSON.stringify(cmd)}\n`)));
+const tpmsLines = lineSplitter((obj) => tpms.onMessage(obj));
+
+$('tpms-install').onclick = async () => {
+  let data;
+  try {
+    const res = await fetch('firmware/snp-tpms.bin', { cache: 'no-store' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    data = new Uint8Array(await res.arrayBuffer());
+  } catch (e) {
+    logger($('esp-log'))(`โหลดไฟล์โปรแกรมไม่ได้ (${e.message})`);
+    return;
+  }
+  if (!confirm(`จะลงโปรแกรม SNP TPMS (${Math.round(data.length / 1024)} KB) ทับโปรแกรมเดิมในจอ สำรองโปรแกรมเดิมแล้วใช่ไหม?`)) return;
+  $('esp-log').scrollIntoView({ behavior: 'smooth' });
+  espTask(async (esp, loader, _chip, onProgress) => {
+    logger($('esp-log'))('กำลังลงโปรแกรม SNP TPMS ห้ามถอดสาย');
+    await esp.writeImage(loader, data, 0, onProgress);
+    logger($('esp-log'))('ลงเสร็จ จอจะรีสตาร์ทแล้วขึ้นหน้าลมยาง ตั้งค่าได้ในขั้นที่ 9');
   });
 };
 

@@ -1,4 +1,4 @@
-# ทดสอบโค้ด แล้วนำหน้าเว็บในโฟลเดอร์ web/ ขึ้น GitHub Pages ทุกครั้งที่มีการเปลี่ยนใน main
+# ทดสอบโค้ด สร้างโปรแกรมจอ TPMS แล้วนำหน้าเว็บในโฟลเดอร์ web/ ขึ้น GitHub Pages ทุกครั้งที่มีการเปลี่ยนใน main
 name: เว็บ (GitHub Pages)
 
 on:
@@ -29,10 +29,37 @@ jobs:
           python-version: "3.12"
       - run: node --test web/test/*.test.mjs
       - run: python -m unittest
+      - name: ทดสอบตัวแปลงข้อมูลเซนเซอร์ลมยาง
+        run: |
+          g++ -std=c++17 -Wall -Werror -Ifirmware/tpms/src firmware/tpms/test/test_decode.cpp firmware/tpms/src/tpms_decode.cpp -o /tmp/test_decode
+          /tmp/test_decode
+
+  firmware:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio-${{ hashFiles('firmware/tpms/platformio.ini') }}
+      - run: pip install platformio==6.1.16 esptool==4.8.1
+      - run: bash tools/gen_fonts.sh
+      - run: pio run -d firmware/tpms
+      - run: bash tools/merge_firmware.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: snp-tpms
+          path: build/snp-tpms.bin
 
   deploy:
     if: github.event_name != 'pull_request'
-    needs: test
+    needs: [test, firmware]
     runs-on: ubuntu-latest
     environment:
       name: github-pages
@@ -40,6 +67,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: mkdir site && cp -r web/*.html web/*.js web/vendor site/
+      - uses: actions/download-artifact@v4
+        with:
+          name: snp-tpms
+          path: site/firmware
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
