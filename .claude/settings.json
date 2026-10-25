@@ -1,0 +1,24 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && git fetch -q origin main 2>/dev/null && echo \"โค้ดออนไลน์ล่าสุด (origin/main): $(git log -1 --format='%h %s' origin/main)\" && echo \"branch ปัจจุบัน: $(git branch --show-current) ตามหลัง main $(git rev-list --count HEAD..origin/main) commit\" || echo 'ดึงโค้ดล่าสุดจาก GitHub ไม่สำเร็จ ให้ลอง git fetch origin main ก่อนแก้ไข'"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/require-pushed.sh\""
+          }
+        ]
+      }
+    ]
+  }
+}
