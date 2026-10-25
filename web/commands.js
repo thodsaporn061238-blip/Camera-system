@@ -33,6 +33,7 @@ export const AT_QUICK = {
 
 export const CONSOLE_QUICK = {
   'ปุ่มพิเศษ': [
+    { label: 'รีเซ็ตบอร์ด (ESP32)', reset: true },
     { label: 'Enter', key: '\r' },
     { label: 'Ctrl+C', key: '\x03' },
     { label: 'กด Enter รัว 10 วินาที', key: '\r', repeat: 10 },
