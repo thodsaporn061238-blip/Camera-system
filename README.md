@@ -20,7 +20,7 @@
 
 ## เปิดโปรแกรมผ่านเว็บ (ง่ายที่สุด ไม่ต้องติดตั้งอะไร)
 
-เปิดลิงก์ **https://thodsaporn061238-blip.github.io/camera-system/** ด้วย Google Chrome หรือ Microsoft Edge บนคอมพิวเตอร์
+เปิดลิงก์ **https://thodsaporn061238-blip.github.io/Camera-system/** ด้วย Google Chrome หรือ Microsoft Edge บนคอมพิวเตอร์
 แล้วกด "เชื่อมต่อ" เลือกพอร์ตของกล้อง ทำตามขั้นที่ 1–7 บนหน้าเว็บ
 
 - ขั้นที่ 6 มีปุ่มคำสั่ง AT สำเร็จรูป (ซิม สัญญาณ GPS ไฟล์) ขั้นที่ 7 พิมพ์คำสั่งเข้าชิปหลักได้ (U-Boot / Linux) พร้อมปุ่มสำเร็จรูป
