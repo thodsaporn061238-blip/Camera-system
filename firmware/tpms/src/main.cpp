@@ -1,20 +1,26 @@
 // SNP TPMS: จอแสดงลมยาง 4 ล้อ สำหรับบอร์ด ESP32-2432S028 (จอเหลือง)
 // - รับค่าจากเซนเซอร์ลมยางผ่าน Bluetooth
-// - เปลี่ยนชื่อ สี หน่วย เกณฑ์เตือน และจับคู่เซนเซอร์ ได้จากหน้าเว็บผ่านสาย USB (คำสั่ง JSON ทีละบรรทัด)
-// - กดค้างที่ช่องล้อบนจอ เพื่อจับคู่เซนเซอร์ที่อยู่ใกล้ที่สุด
+// - หน้าจอวาดตามไฟล์ออกแบบ (JSON) แก้จากหน้าเว็บแล้วจอเปลี่ยนทันที ไม่ต้องลงโปรแกรมใหม่
+// - เปลี่ยนชื่อ สี หน่วย เกณฑ์เตือน จับคู่เซนเซอร์ และจัดการไฟล์ในบอร์ด ผ่านสาย USB (คำสั่ง JSON ทีละบรรทัด)
 #include <Arduino.h>
 #include <ArduinoJson.h>
+#include <LittleFS.h>
 #include <NimBLEDevice.h>
 #include <Preferences.h>
 #include <SPI.h>
 #include <TFT_eSPI.h>
 #include <XPT2046_Touchscreen.h>
 #include <lvgl.h>
+#include <mbedtls/base64.h>
 
+#include <string>
+#include <vector>
+
+#include "layout_bind.h"
 #include "tpms_decode.h"
 
 #define APP_NAME "snp-tpms"
-#define APP_VERSION "1.0.0"
+#define APP_VERSION "1.1.0"
 
 // ขาของบอร์ด ESP32-2432S028
 #define TOUCH_CS 33
@@ -33,9 +39,14 @@ LV_FONT_DECLARE(snp_th_16);
 LV_FONT_DECLARE(snp_th_24);
 LV_FONT_DECLARE(snp_num_48);
 
+// หน้าจอเริ่มต้น (firmware/tpms/layouts/default.json ฝังมากับโปรแกรม)
+extern const char defaultLayout[] asm("_binary_layouts_default_json_start");
+static const char *LAYOUT_PATH = "/layout.json";
+
 static const int WHEELS = 4;
 static const uint32_t STALE_MS = 10UL * 60UL * 1000UL;  // ไม่ได้ข้อมูลเกิน 10 นาที = ขาดการติดต่อ
 static const uint32_t PAIR_MS = 30000;
+static const size_t FS_CHUNK = 3072;  // ขนาดข้อมูลไฟล์ต่อหนึ่งบรรทัดที่ส่งให้หน้าเว็บ
 
 // ---------- ค่าตั้ง (เก็บในหน่วยความจำของบอร์ด ไม่หายเมื่อดับไฟ) ----------
 struct Config {
@@ -60,8 +71,7 @@ static String hexColor(uint32_t c) {
   return b;
 }
 static uint32_t parseColor(const char *s, uint32_t fallback) {
-  if (!s || s[0] != '#' || strlen(s) != 7) return fallback;
-  return strtoul(s + 1, nullptr, 16);
+  return s ? parseHexColor(s, fallback) : fallback;
 }
 
 static void configToJson(JsonObject o) {
@@ -172,17 +182,14 @@ struct Wheel {
   bool has = false;
   TpmsReading r;
   uint32_t at = 0;
-  lv_obj_t *tile, *name, *value, *info;
 };
 static Wheel wheels[WHEELS];
-static lv_obj_t *titleLabel, *statusLabel, *carBody;
+static String statusMsg;
 static int pairingWheel = -1;
 static uint32_t pairingUntil = 0;
 static String pairBestMac;
 static int pairBestRssi = -127;
 static bool rawMode = false;
-
-static lv_color_t col(uint32_t c) { return lv_color_hex(c); }
 
 static const char *unitLabel() {
   return cfg.unit == "kpa" ? "kPa" : cfg.unit == "bar" ? "bar" : "PSI";
@@ -207,57 +214,189 @@ static Status wheelStatus(const Wheel &w) {
   return ST_OK;
 }
 
-// เปลี่ยนข้อความเฉพาะเมื่อต่างจากเดิม (ตั้งซ้ำทุกวินาทีจะทำให้ข้อความที่เลื่อนวิ่งเริ่มใหม่ตลอด)
-static void setText(lv_obj_t *label, const char *text) {
-  if (strcmp(lv_label_get_text(label), text) != 0) lv_label_set_text(label, text);
+static uint32_t statusColor(int i) {
+  if (pairingWheel == i) return cfg.cHigh;
+  Status st = wheelStatus(wheels[i]);
+  return st == ST_OK ? cfg.cOk : st == ST_LOW ? cfg.cLow : st == ST_HIGH ? cfg.cHigh : cfg.cStale;
 }
 
-static void renderWheel(int i) {
-  Wheel &w = wheels[i];
-  char buf[64];
-  snprintf(buf, sizeof buf, "%s (%s)", cfg.names[i].c_str(), unitLabel());  // เช่น "ล้อหน้าซ้าย (PSI)"
-  setText(w.name, buf);
-  lv_obj_set_style_bg_color(w.tile, col(cfg.cTile), 0);
-  lv_obj_set_style_text_color(w.name, col(cfg.cText), 0);
-  lv_obj_set_style_text_color(w.info, col(cfg.cText), 0);
-
-  if (pairingWheel == i) {
-    setText(w.value, "--");
-    snprintf(buf, sizeof buf, "กำลังจับคู่ %lus", (unsigned long)((pairingUntil - millis()) / 1000));
-    setText(w.info, buf);
-    lv_obj_set_style_text_color(w.value, col(cfg.cHigh), 0);
-    lv_obj_set_style_border_color(w.tile, col(cfg.cHigh), 0);
-    return;
-  }
+// ค่าของตัวแปรในไฟล์ออกแบบ เช่น {fl.p} {unit} {c.tile} (รายการทั้งหมดอยู่ใน docs/LAYOUT.md)
+static bool wheelValue(int i, const std::string &field, String &v) {
+  const Wheel &w = wheels[i];
   Status st = wheelStatus(w);
-  uint32_t c = st == ST_OK ? cfg.cOk : st == ST_LOW ? cfg.cLow : st == ST_HIGH ? cfg.cHigh : cfg.cStale;
-  lv_obj_set_style_text_color(w.value, col(c), 0);
-  lv_obj_set_style_border_color(w.tile, col(st == ST_LOW || st == ST_HIGH ? c : cfg.cTile), 0);
-  if (st == ST_NONE) {
-    setText(w.value, "--");
-    setText(w.info, cfg.macs[i].isEmpty() ? "กดค้างเพื่อจับคู่" : "รอสัญญาณ...");
-    return;
+  bool live = w.has && pairingWheel != i;
+  char b[40];
+  if (field == "name") v = cfg.names[i];
+  else if (field == "p") v = live ? formatPressure(w.r.kpa) : String("--");
+  else if (field == "psi") v = live ? String(kpaToPsi(w.r.kpa), 1) : String("--");
+  else if (field == "kpa") v = live ? String(w.r.kpa, 0) : String("--");
+  else if (field == "bar") v = live ? String(w.r.kpa / 100.0f, 2) : String("--");
+  else if (field == "temp") v = live ? String(w.r.tempC, 0) : String("--");
+  else if (field == "batt") {
+    if (!live) v = "--";
+    else if (w.r.batteryV > 0) v = String(w.r.batteryV, 1) + "V";
+    else if (w.r.batteryPct >= 0) v = String(w.r.batteryPct) + "%";
+    else v = "--";
+  } else if (field == "info") {
+    if (pairingWheel == i) {
+      snprintf(b, sizeof b, "กำลังจับคู่ %lus", (unsigned long)((pairingUntil - millis()) / 1000));
+      v = b;
+    } else if (st == ST_NONE) v = cfg.macs[i].isEmpty() ? "กดค้างเพื่อจับคู่" : "รอสัญญาณ...";
+    else if (st == ST_STALE) v = "ขาดการติดต่อ";
+    else {
+      String batt;
+      wheelValue(i, "batt", batt);
+      v = String(w.r.tempC, 0) + "°C | " + batt;
+    }
+  } else if (field == "status") {
+    v = pairingWheel == i ? "กำลังจับคู่" : st == ST_OK ? "ปกติ" : st == ST_LOW ? "ลมต่ำ" : st == ST_HIGH ? "ลมสูง/ร้อน"
+        : st == ST_STALE ? "ขาดการติดต่อ" : cfg.macs[i].isEmpty() ? "ยังไม่จับคู่" : "รอสัญญาณ";
+  } else if (field == "color") v = hexColor(statusColor(i));
+  else if (field == "border") {
+    bool warn = pairingWheel == i || st == ST_LOW || st == ST_HIGH;
+    v = hexColor(warn ? statusColor(i) : cfg.cTile);
+  } else return false;
+  return true;
+}
+
+static bool lookupValue(const std::string &key, std::string &out) {
+  String v;
+  size_t dot = key.find('.');
+  std::string head = key.substr(0, dot), field = dot == std::string::npos ? "" : key.substr(dot + 1);
+  int wi = wheelIndex(head);
+  if (wi >= 0) {
+    if (!wheelValue(wi, field, v)) return false;
+  } else if (head == "c") {
+    if (field == "bg") v = hexColor(cfg.cBg);
+    else if (field == "tile") v = hexColor(cfg.cTile);
+    else if (field == "text") v = hexColor(cfg.cText);
+    else if (field == "ok") v = hexColor(cfg.cOk);
+    else if (field == "low") v = hexColor(cfg.cLow);
+    else if (field == "high") v = hexColor(cfg.cHigh);
+    else if (field == "stale") v = hexColor(cfg.cStale);
+    else return false;
+  } else if (key == "unit") v = unitLabel();
+  else if (key == "title") v = cfg.title;
+  else if (key == "status") v = statusMsg;
+  else return false;
+  out = v.c_str();
+  return true;
+}
+
+static std::string expand(const std::string &tpl) { return expandTemplate(tpl, lookupValue); }
+
+// ---------- หน้าจอตามไฟล์ออกแบบ ----------
+struct Item {
+  lv_obj_t *obj;
+  bool isText;
+  std::string text, color, bg, border;           // แม่แบบ (อาจมี {ตัวแปร})
+  std::string lastText, lastColor, lastBg, lastBorder;  // ค่าที่แสดงอยู่ ใช้เทียบก่อนวาดใหม่
+};
+static std::vector<Item> items;
+static std::string screenBg = "{c.bg}", lastScreenBg;
+static String currentLayout;
+
+static const lv_font_t *fontFor(int size) {
+  return size >= 40 ? &snp_num_48 : size >= 20 ? &snp_th_24 : &snp_th_16;
+}
+
+static lv_color_t colorOf(const std::string &s, uint32_t fallback) {
+  return lv_color_hex(parseHexColor(s, fallback));
+}
+
+static void startPairing(int i);
+static void boxEvent(lv_event_t *e) { startPairing((int)(intptr_t)lv_event_get_user_data(e)); }
+
+// อัปเดตเฉพาะส่วนที่ค่าเปลี่ยน (ตั้งข้อความซ้ำจะทำให้ข้อความที่เลื่อนวิ่งเริ่มใหม่ตลอด)
+static void refreshScreen() {
+  std::string bg = expand(screenBg);
+  if (bg != lastScreenBg) {
+    lastScreenBg = bg;
+    lv_obj_set_style_bg_color(lv_scr_act(), colorOf(bg, cfg.cBg), 0);
   }
-  setText(w.value, formatPressure(w.r.kpa).c_str());
-  if (w.r.batteryV > 0) snprintf(buf, sizeof buf, "%.0f°C | %.1fV", w.r.tempC, w.r.batteryV);
-  else if (w.r.batteryPct >= 0) snprintf(buf, sizeof buf, "%.0f°C | %d%%", w.r.tempC, w.r.batteryPct);
-  else snprintf(buf, sizeof buf, "%.0f°C", w.r.tempC);
-  setText(w.info, st == ST_STALE ? "ขาดการติดต่อ" : buf);
+  for (Item &it : items) {
+    if (it.isText) {
+      std::string t = expand(it.text);
+      if (t != it.lastText) lv_label_set_text(it.obj, (it.lastText = t).c_str());
+      std::string c = expand(it.color);
+      if (c != it.lastColor) lv_obj_set_style_text_color(it.obj, colorOf(it.lastColor = c, cfg.cText), 0);
+    } else {
+      std::string b = expand(it.bg);
+      if (b != it.lastBg) lv_obj_set_style_bg_color(it.obj, colorOf(it.lastBg = b, cfg.cTile), 0);
+      std::string br = expand(it.border);
+      if (br != it.lastBorder) lv_obj_set_style_border_color(it.obj, colorOf(it.lastBorder = br, cfg.cText), 0);
+    }
+  }
+}
+
+// สร้างหน้าจอใหม่จากไฟล์ออกแบบ ถ้าไฟล์ผิดจะคงหน้าจอเดิมไว้และคืนข้อความผิดพลาด
+static bool applyLayout(const String &json, String &err) {
+  JsonDocument doc;
+  DeserializationError e = deserializeJson(doc, json);
+  if (e) {
+    err = String("ไฟล์ออกแบบไม่ใช่ JSON ที่ถูกต้อง: ") + e.c_str();
+    return false;
+  }
+  JsonArrayConst list = doc["items"];
+  if (list.isNull()) {
+    err = "ไฟล์ออกแบบต้องมีรายการ \"items\"";
+    return false;
+  }
+  lv_obj_t *scr = lv_scr_act();
+  lv_obj_clean(scr);
+  lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
+  items.clear();
+  screenBg = doc["bg"] | "{c.bg}";
+  lastScreenBg.clear();
+
+  for (JsonObjectConst o : list) {
+    if (items.size() >= 80) break;  // กันหน่วยความจำเต็ม
+    Item it{};
+    std::string type = o["type"] | "text";
+    int x = o["x"] | 0, y = o["y"] | 0, w = o["w"] | 0, h = o["h"] | 0;
+    if (type == "box") {
+      it.isText = false;
+      it.obj = lv_obj_create(scr);
+      lv_obj_remove_style_all(it.obj);
+      lv_obj_set_style_bg_opa(it.obj, LV_OPA_COVER, 0);
+      lv_obj_set_pos(it.obj, x, y);
+      lv_obj_set_size(it.obj, w > 0 ? w : 20, h > 0 ? h : 20);
+      lv_obj_set_style_radius(it.obj, o["r"] | 0, 0);
+      lv_obj_set_style_border_width(it.obj, o["bw"] | 0, 0);
+      it.bg = o["bg"] | "{c.tile}";
+      it.border = o["border"] | "{c.text}";
+      int pair = wheelIndex(o["pair"] | "");
+      if (pair >= 0) lv_obj_add_event_cb(it.obj, boxEvent, LV_EVENT_LONG_PRESSED, (void *)(intptr_t)pair);
+      else lv_obj_clear_flag(it.obj, LV_OBJ_FLAG_CLICKABLE);
+    } else {
+      it.isText = true;
+      it.obj = lv_label_create(scr);
+      lv_obj_set_style_text_font(it.obj, fontFor(o["font"] | 16), 0);
+      if (w > 0) {
+        lv_obj_set_width(it.obj, w);
+        lv_label_set_long_mode(it.obj, (o["scroll"] | false) ? LV_LABEL_LONG_SCROLL_CIRCULAR : LV_LABEL_LONG_WRAP);
+      }
+      std::string align = o["align"] | "left";
+      lv_obj_set_style_text_align(it.obj, align == "center" ? LV_TEXT_ALIGN_CENTER
+                                  : align == "right" ? LV_TEXT_ALIGN_RIGHT : LV_TEXT_ALIGN_LEFT, 0);
+      lv_obj_set_pos(it.obj, x, y);
+      lv_label_set_text(it.obj, "");
+      it.text = o["text"] | "";
+      it.color = o["color"] | "{c.text}";
+    }
+    items.push_back(it);
+  }
+  currentLayout = json;
+  refreshScreen();
+  return true;
 }
 
 static void applyStyle() {
-  lv_obj_t *scr = lv_scr_act();
-  lv_obj_set_style_bg_color(scr, col(cfg.cBg), 0);
-  setText(titleLabel, cfg.title.c_str());
-  lv_obj_set_style_text_color(titleLabel, col(cfg.cText), 0);
-  lv_obj_set_style_text_color(statusLabel, col(cfg.cText), 0);
-  lv_obj_set_style_bg_color(carBody, col(cfg.cTile), 0);
-  lv_obj_set_style_border_color(carBody, col(cfg.cText), 0);
-  for (int i = 0; i < WHEELS; i++) renderWheel(i);
+  refreshScreen();
   ledcWrite(BL_CHANNEL, cfg.bright);
   tft.setRotation(cfg.rot);
   tft.invertDisplay(cfg.invert);
-  lv_obj_invalidate(scr);
+  lv_obj_invalidate(lv_scr_act());
 }
 
 static void startPairing(int i) {
@@ -265,68 +404,7 @@ static void startPairing(int i) {
   pairingUntil = millis() + PAIR_MS;
   pairBestMac = "";
   pairBestRssi = -127;
-  renderWheel(i);
-}
-
-static void tileEvent(lv_event_t *e) { startPairing((int)(intptr_t)lv_event_get_user_data(e)); }
-
-static void buildUi() {
-  lv_obj_t *scr = lv_scr_act();
-  lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
-  const int tw = 124, th = 112;
-  const int xs[WHEELS] = {2, 194, 2, 194}, ys[WHEELS] = {2, 2, 126, 126};
-  for (int i = 0; i < WHEELS; i++) {
-    Wheel &w = wheels[i];
-    w.tile = lv_obj_create(scr);
-    lv_obj_set_pos(w.tile, xs[i], ys[i]);
-    lv_obj_set_size(w.tile, tw, th);
-    lv_obj_set_style_radius(w.tile, 10, 0);
-    lv_obj_set_style_border_width(w.tile, 2, 0);
-    lv_obj_set_style_pad_all(w.tile, 4, 0);
-    lv_obj_clear_flag(w.tile, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_event_cb(w.tile, tileEvent, LV_EVENT_LONG_PRESSED, (void *)(intptr_t)i);
-
-    // ข้อความที่ยาวเกินช่องจะเลื่อนวิ่งแทนการล้นออกนอกช่อง
-    w.name = lv_label_create(w.tile);
-    lv_obj_set_style_text_font(w.name, &snp_th_16, 0);
-    lv_label_set_long_mode(w.name, LV_LABEL_LONG_SCROLL_CIRCULAR);
-    lv_obj_set_width(w.name, tw - 12);
-    lv_obj_set_style_text_align(w.name, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(w.name, LV_ALIGN_TOP_MID, 0, 0);
-    w.value = lv_label_create(w.tile);
-    lv_obj_set_style_text_font(w.value, &snp_num_48, 0);
-    lv_obj_align(w.value, LV_ALIGN_CENTER, 0, 2);
-    w.info = lv_label_create(w.tile);
-    lv_obj_set_style_text_font(w.info, &snp_th_16, 0);
-    lv_label_set_long_mode(w.info, LV_LABEL_LONG_SCROLL_CIRCULAR);
-    lv_obj_set_width(w.info, tw - 12);
-    lv_obj_set_style_text_align(w.info, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(w.info, LV_ALIGN_BOTTOM_MID, 0, 0);
-  }
-
-  // หัวข้อและข้อความสถานะอยู่ในช่องว่างกลางจอ (กว้าง 66 จุด) ยาวเกินจะเลื่อนวิ่ง
-  titleLabel = lv_label_create(scr);
-  lv_obj_set_style_text_font(titleLabel, &snp_th_24, 0);
-  lv_label_set_long_mode(titleLabel, LV_LABEL_LONG_SCROLL_CIRCULAR);
-  lv_obj_set_width(titleLabel, 66);
-  lv_obj_set_style_text_align(titleLabel, LV_TEXT_ALIGN_CENTER, 0);
-  lv_obj_align(titleLabel, LV_ALIGN_TOP_MID, 0, 4);
-
-  // รถมุมมองจากด้านบน วางกลางจอระหว่างช่องล้อ
-  carBody = lv_obj_create(scr);
-  lv_obj_set_size(carBody, 40, 120);
-  lv_obj_align(carBody, LV_ALIGN_CENTER, 0, 8);
-  lv_obj_set_style_radius(carBody, 14, 0);
-  lv_obj_set_style_border_width(carBody, 2, 0);
-  lv_obj_clear_flag(carBody, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
-
-  statusLabel = lv_label_create(scr);
-  lv_obj_set_style_text_font(statusLabel, &snp_th_16, 0);
-  lv_label_set_long_mode(statusLabel, LV_LABEL_LONG_SCROLL_CIRCULAR);
-  lv_obj_set_width(statusLabel, 66);
-  lv_obj_set_style_text_align(statusLabel, LV_TEXT_ALIGN_CENTER, 0);
-  lv_obj_align(statusLabel, LV_ALIGN_BOTTOM_MID, 0, -2);
-  lv_label_set_text(statusLabel, "");
+  refreshScreen();
 }
 
 // ---------- Bluetooth ----------
@@ -366,6 +444,11 @@ static void startScan() {
   scan->start(0, nullptr, false);
 }
 
+static void sendJson(JsonDocument &doc) {
+  serializeJson(doc, Serial);
+  Serial.println();
+}
+
 static void printReading(const Adv &a, const TpmsReading &r, int wheel) {
   JsonDocument doc;
   JsonObject s = doc["sensor"].to<JsonObject>();
@@ -385,15 +468,13 @@ static void printReading(const Adv &a, const TpmsReading &r, int wheel) {
     if (r.batteryV > 0) s["volt"] = serialized(String(r.batteryV, 2));
     s["alarm"] = r.alarm;
   }
-  serializeJson(doc, Serial);
-  Serial.println();
+  sendJson(doc);
 }
 
 static void printConfig() {
   JsonDocument doc;
   configToJson(doc["cfg"].to<JsonObject>());
-  serializeJson(doc, Serial);
-  Serial.println();
+  sendJson(doc);
 }
 
 static void handleAdv(const Adv &a) {
@@ -410,7 +491,7 @@ static void handleAdv(const Adv &a) {
     wheels[wheel].has = true;
     wheels[wheel].r = r;
     wheels[wheel].at = millis();
-    renderWheel(wheel);
+    refreshScreen();
   }
   printReading(a, r, wheel);
 }
@@ -423,11 +504,107 @@ static void finishPairing() {
     wheels[i].has = false;
     saveConfig();
     printConfig();
-    lv_label_set_text_fmt(statusLabel, "จับคู่ %s แล้ว", cfg.names[i].c_str());
+    statusMsg = String("จับคู่ ") + cfg.names[i] + " แล้ว";
   } else {
-    lv_label_set_text(statusLabel, "ไม่พบเซนเซอร์ ลองใหม่");
+    statusMsg = "ไม่พบเซนเซอร์ ลองใหม่";
   }
-  renderWheel(i);
+  refreshScreen();
+}
+
+// ---------- ไฟล์ในบอร์ด (LittleFS) ----------
+static void fsError(const String &msg) {
+  JsonDocument doc;
+  doc["fs_err"] = msg;
+  sendJson(doc);
+}
+
+static void fsOk(const String &path, size_t size) {
+  JsonDocument doc;
+  doc["fs_ok"]["path"] = path;
+  doc["fs_ok"]["size"] = size;
+  sendJson(doc);
+}
+
+static void fsCommand(JsonDocument &cmd) {
+  String op = cmd["fs"].as<const char *>();
+  String path = cmd["path"] | "";
+  if (!path.isEmpty() && !path.startsWith("/")) path = "/" + path;
+
+  if (op == "list") {
+    JsonDocument doc;
+    JsonArray list = doc["files"].to<JsonArray>();
+    File root = LittleFS.open("/");
+    for (File f = root.openNextFile(); f; f = root.openNextFile()) {
+      JsonObject o = list.add<JsonObject>();
+      o["path"] = String("/") + f.name();
+      o["size"] = f.size();
+      o["dir"] = f.isDirectory();
+    }
+    doc["total"] = LittleFS.totalBytes();
+    doc["used"] = LittleFS.usedBytes();
+    sendJson(doc);
+  } else if (op == "read") {
+    File f = LittleFS.open(path, "r");
+    if (!f) return fsError("ไม่พบไฟล์ " + path);
+    size_t offset = cmd["offset"] | 0, size = f.size();
+    size_t len = min((size_t)(cmd["len"] | (int)FS_CHUNK), FS_CHUNK);
+    static uint8_t raw[FS_CHUNK];
+    static unsigned char b64[FS_CHUNK * 4 / 3 + 8];
+    f.seek(offset);
+    size_t n = f.read(raw, min(len, size > offset ? size - offset : 0));
+    size_t outLen = 0;
+    mbedtls_base64_encode(b64, sizeof b64, &outLen, raw, n);
+    b64[outLen] = 0;
+    JsonDocument doc;
+    JsonObject o = doc["file"].to<JsonObject>();
+    o["path"] = path;
+    o["offset"] = offset;
+    o["size"] = size;
+    o["data"] = (const char *)b64;
+    sendJson(doc);
+  } else if (op == "write") {
+    const char *data = cmd["data"] | "";
+    static uint8_t raw[FS_CHUNK + 4];
+    size_t n = 0;
+    if (mbedtls_base64_decode(raw, sizeof raw, &n, (const unsigned char *)data, strlen(data)) != 0) {
+      return fsError("ข้อมูลไฟล์เสีย (base64)");
+    }
+    File f = LittleFS.open(path, (cmd["append"] | false) ? "a" : "w");
+    if (!f) return fsError("เขียนไฟล์ " + path + " ไม่ได้");
+    f.write(raw, n);
+    size_t size = f.size();
+    f.close();
+    fsOk(path, size);
+  } else if (op == "delete") {
+    if (!LittleFS.remove(path)) return fsError("ลบ " + path + " ไม่ได้");
+    fsOk(path, 0);
+  } else if (op == "rename") {
+    String to = cmd["to"] | "";
+    if (!to.startsWith("/")) to = "/" + to;
+    if (!LittleFS.rename(path, to)) return fsError("เปลี่ยนชื่อ " + path + " ไม่ได้");
+    fsOk(to, 0);
+  } else {
+    fsError("ไม่รู้จักคำสั่ง fs: " + op);
+  }
+}
+
+static String readFile(const char *path) {
+  File f = LittleFS.open(path, "r");
+  if (!f) return "";
+  String s = f.readString();
+  f.close();
+  return s;
+}
+
+static void reportLayout(bool ok, const String &err, bool saved) {
+  JsonDocument doc;
+  if (ok) {
+    doc["layout_ok"]["items"] = items.size();
+    doc["layout_ok"]["saved"] = saved;
+  } else {
+    doc["layout_err"] = err;
+  }
+  sendJson(doc);
 }
 
 // ---------- คำสั่งจากหน้าเว็บ (JSON ทีละบรรทัด) ----------
@@ -438,10 +615,16 @@ static void handleCommand(const String &line) {
     JsonDocument out;
     out["hello"]["app"] = APP_NAME;
     out["hello"]["version"] = APP_VERSION;
-    serializeJson(out, Serial);
-    Serial.println();
+    out["hello"]["layout"] = true;
+    out["hello"]["fs"] = true;
+    sendJson(out);
   }
   if (doc["get"] == "cfg") printConfig();
+  if (doc["get"] == "layout") {
+    Serial.print("{\"layout\":");
+    Serial.print(currentLayout);
+    Serial.println("}");
+  }
   if (doc["set"].is<JsonObjectConst>()) {
     configFromJson(doc["set"].as<JsonObjectConst>());
     saveConfig();
@@ -454,13 +637,36 @@ static void handleCommand(const String &line) {
     applyStyle();
     printConfig();
   }
+  if (doc["layout"].is<JsonObjectConst>()) {
+    String json, err;
+    serializeJson(doc["layout"], json);
+    bool save = doc["save"] | false;
+    bool ok = applyLayout(json, err);
+    if (ok && save) {
+      File f = LittleFS.open(LAYOUT_PATH, "w");
+      if (f) {
+        f.print(json);
+        f.close();
+      } else {
+        save = false;
+      }
+    }
+    reportLayout(ok, err, save);
+  }
+  if (doc["reset"] == "layout" || doc["reload"] == "layout") {
+    if (doc["reset"] == "layout") LittleFS.remove(LAYOUT_PATH);
+    String json = readFile(LAYOUT_PATH), err;
+    bool ok = applyLayout(json.isEmpty() ? String(defaultLayout) : json, err);
+    reportLayout(ok, err, false);
+  }
+  if (doc["fs"].is<const char *>()) fsCommand(doc);
   if (doc["pair"].is<int>()) startPairing(constrain(doc["pair"].as<int>(), 0, WHEELS - 1));
   if (doc["unpair"].is<int>()) {
     int i = constrain(doc["unpair"].as<int>(), 0, WHEELS - 1);
     cfg.macs[i] = "";
     wheels[i].has = false;
     saveConfig();
-    renderWheel(i);
+    refreshScreen();
     printConfig();
   }
   if (doc["raw"].is<bool>()) rawMode = doc["raw"];
@@ -474,7 +680,7 @@ static void readSerial() {
     if (ch == '\n' || ch == '\r') {
       if (lineBuf.length()) handleCommand(lineBuf);
       lineBuf = "";
-    } else if (lineBuf.length() < 2048) {
+    } else if (lineBuf.length() < 16384) {  // ไฟล์ออกแบบทั้งไฟล์มาในบรรทัดเดียว
       lineBuf += ch;
     }
   }
@@ -496,6 +702,7 @@ static void alarms() {
 }
 
 void setup() {
+  Serial.setRxBufferSize(4096);
   Serial.begin(115200);
   pinMode(PIN_LED_R, OUTPUT);
   pinMode(PIN_LED_G, OUTPUT);
@@ -506,6 +713,7 @@ void setup() {
 
   prefs.begin("tpms", false);
   loadConfig();
+  LittleFS.begin(true);  // ครั้งแรกจะฟอร์แมตพื้นที่เก็บไฟล์ให้เอง
 
   tft.begin();
   ledcSetup(BL_CHANNEL, 5000, 8);
@@ -529,7 +737,8 @@ void setup() {
   indevDrv.read_cb = touchCb;
   lv_indev_drv_register(&indevDrv);
 
-  buildUi();
+  String saved = readFile(LAYOUT_PATH), err;
+  if (saved.isEmpty() || !applyLayout(saved, err)) applyLayout(String(defaultLayout), err);
   applyStyle();
 
   advQueue = xQueueCreate(32, sizeof(Adv));
@@ -545,7 +754,7 @@ void loop() {
   if (pairingWheel >= 0 && (millis() > pairingUntil || pairBestRssi > -45)) finishPairing();
   if (millis() - lastTick > 1000) {
     lastTick = millis();
-    for (int i = 0; i < WHEELS; i++) renderWheel(i);
+    refreshScreen();
     alarms();
   }
   lv_timer_handler();
