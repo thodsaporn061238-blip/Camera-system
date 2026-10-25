@@ -1,6 +1,7 @@
 // ขั้นที่ 10: ออกแบบหน้าจอ (แก้แล้วเห็นผลบนจอจริงทันที) และขั้นที่ 11: ไฟล์ในบอร์ด
 // คุยกับโปรแกรม SNP TPMS ผ่าน request(cmd, match) ที่ app.js ส่งมา
 import { SAMPLE_READINGS, SCREEN, makeLookup, renderPreview, validateLayout } from './layout.js';
+import { THAI_EXAMPLES, applyThaiCommands } from './thai_commands.js';
 import { createZip } from './zip.js';
 
 const $ = (id) => document.getElementById(id);
@@ -112,12 +113,69 @@ export function initDesigner({ request, isReady }) {
     }
   }
 
+  // ---------- สั่งด้วยภาษาไทย ----------
+  const history = [];
+  const showResults = (lines) => {
+    $('th-result').innerHTML = '';
+    for (const { ok, message } of lines) {
+      const div = document.createElement('div');
+      div.className = ok ? 'ok' : 'err';
+      div.textContent = `${ok ? '✓' : '✗'} ${message}`;
+      $('th-result').append(div);
+    }
+  };
+  function remember() {
+    history.push($('layout-json').value);
+    if (history.length > 50) history.shift();
+    $('th-undo').disabled = false;
+  }
+  function undo() {
+    if (!history.length) return showResults([{ ok: false, message: 'ไม่มีอะไรให้เลิกทำ' }]);
+    $('layout-json').value = history.pop();
+    $('th-undo').disabled = !history.length;
+    lastSent = '';
+    onEdit();
+    showResults([{ ok: true, message: 'เลิกทำแล้ว' }]);
+  }
+  async function runThai(input) {
+    const text = input.trim();
+    if (!text) return;
+    if (/^(เลิกทำ|ย้อนกลับ|undo)$/i.test(text)) return undo();
+    if (/^(เริ่มใหม่|คืนค่าเริ่มต้น|หน้าจอเริ่มต้น)$/.test(text)) {
+      remember();
+      setLayoutText(await (await fetch('layouts/default.json', { cache: 'no-store' })).json());
+      return showResults([{ ok: true, message: 'กลับไปหน้าจอเริ่มต้นแล้ว (ยังไม่ได้บันทึกลงจอ)' }]);
+    }
+    if (!layout) return showResults([{ ok: false, message: 'แก้ไฟล์ออกแบบให้ถูกต้องก่อน หรือเลือกแม่แบบ' }]);
+    const r = applyThaiCommands(layout, text);
+    showResults(r.results);
+    if (r.changed) {
+      remember();
+      setLayoutText(r.layout);
+      $('th-cmd').select();
+    }
+  }
+  $('th-run').onclick = () => runThai($('th-cmd').value);
+  $('th-cmd').addEventListener('keydown', (e) => e.key === 'Enter' && runThai($('th-cmd').value));
+  $('th-undo').onclick = undo;
+  for (const ex of THAI_EXAMPLES) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = ex;
+    b.onclick = () => {
+      $('th-cmd').value = ex;
+      runThai(ex);
+    };
+    $('th-examples').append(b);
+  }
+
   $('layout-json').addEventListener('input', onEdit);
   $('layout-sample').onchange = redraw;
   $('layout-template').onchange = async () => {
     const file = $('layout-template').value;
     if (!file) return;
     if ($('layout-json').value && !confirm('แทนที่สิ่งที่แก้อยู่ด้วยแม่แบบนี้?')) return;
+    remember();
     setLayoutText(await (await fetch(`layouts/${file}`, { cache: 'no-store' })).json());
   };
   $('layout-send').onclick = () => {
