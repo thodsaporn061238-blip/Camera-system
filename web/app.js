@@ -3,6 +3,7 @@ import {
   ATClient, ATError, ATTimeout, INFO_COMMANDS, backup, gpsFix, readInfo, readableScore, restore,
 } from './camtool.js';
 import { AT_QUICK, CONSOLE_QUICK, renderQuick } from './commands.js';
+import { identify } from './devices.js';
 import { createZip, readZip } from './zip.js';
 
 const $ = (id) => document.getElementById(id);
@@ -45,29 +46,58 @@ async function readLoop() {
   }
 }
 
-async function connect() {
+// เปิดพอร์ตแล้วเดาว่าเป็นอุปกรณ์อะไร: ตอบคำสั่ง AT = โมดูล 4G, ไม่ตอบ = เปิดดูข้อความดิบในขั้นที่ 7 ให้อัตโนมัติ
+async function openPort(p) {
+  if (port) return;
   try {
-    port = await navigator.serial.requestPort();
-    await port.open({ baudRate: Number($('baud').value), bufferSize: 65536 });
+    await p.open({ baudRate: Number($('baud').value), bufferSize: 65536 });
   } catch (e) {
-    port = null;
-    if (e.name !== 'NotFoundError') setStatus(`เปิดพอร์ตไม่ได้: ${e.message}`, 'err');
+    setStatus(`เปิดพอร์ตไม่ได้: ${e.message} (โปรแกรมอื่นอาจเปิดพอร์ตนี้อยู่ เช่น Arduino IDE)`, 'err');
     return;
   }
+  port = p;
   const writer = port.writable.getWriter();
   client = new ATClient({ write: (data) => writer.write(data) });
   client.writer = writer;
   readLoop();
   setConnected(true);
-  const ids = port.getInfo();
-  const usb = ids.usbVendorId ? ` (USB ${hex(ids.usbVendorId)}:${hex(ids.usbProductId)})` : '';
-  setStatus(`เชื่อมต่อแล้ว${usb} กำลังทดสอบ...`, 'warn');
+  const dev = identify(port.getInfo());
+  const label = `เชื่อมต่อแล้ว: ${dev.name}${dev.ids ? ` (USB ${dev.ids})` : ''}`;
+  if (dev.kind === 'download') {
+    setStatus(`${label} ใช้โปรแกรมนี้ไม่ได้ ต้องใช้โปรแกรมลงเฟิร์มแวร์ของผู้ผลิต`, 'warn');
+    return;
+  }
+  setStatus(`${label} กำลังทดสอบ...`, 'warn');
   try {
     await client.command('AT', 2000);
-    setStatus(`เชื่อมต่อแล้ว${usb} กล้องตอบคำสั่ง AT`, 'ok');
+    setStatus(`${label} ตอบคำสั่ง AT ใช้ขั้นที่ 2–6 ได้`, 'ok');
   } catch {
-    setStatus(`เชื่อมต่อแล้ว${usb} แต่ไม่ตอบคำสั่ง AT (ถ้าเป็นพอร์ต TX/RX ใช้ขั้นที่ 7 ได้ ถ้าไม่ใช่ ลองพอร์ตอื่น)`, 'warn');
+    startLog();
+    if ($('auto-reset').checked) await resetBoard();
+    setStatus(`${label} ไม่ตอบคำสั่ง AT จึงเปิดดูข้อความจากบอร์ดในขั้นที่ 7 ให้แล้ว`, 'warn');
+    $('console-section').scrollIntoView({ behavior: 'smooth' });
   }
+}
+
+// สั่งรีเซ็ตบอร์ดผ่านขา RTS/DTR (บอร์ด ESP32 ที่มีวงจรรีเซ็ตอัตโนมัติ) บอร์ดจะเริ่มทำงานใหม่และพิมพ์ log ตอนบูตออกมา
+async function resetBoard() {
+  try {
+    await port.setSignals({ dataTerminalReady: false, requestToSend: true });
+    await new Promise((r) => setTimeout(r, 120));
+    await port.setSignals({ dataTerminalReady: false, requestToSend: false });
+  } catch {
+    // บางพอร์ตไม่รองรับการสั่งขา RTS/DTR
+  }
+}
+
+async function connect() {
+  let p;
+  try {
+    p = await navigator.serial.requestPort();
+  } catch {
+    return; // ผู้ใช้กดยกเลิก
+  }
+  await openPort(p);
 }
 
 async function disconnect() {
@@ -83,8 +113,6 @@ async function disconnect() {
   setConnected(false);
   setStatus('ยังไม่ได้เชื่อมต่อ');
 }
-
-const hex = (n) => n.toString(16).toUpperCase().padStart(4, '0');
 
 // กันกดหลายปุ่มพร้อมกัน และแปลง error เป็นข้อความที่อ่านเข้าใจ
 async function run(out, task) {
@@ -281,6 +309,11 @@ renderQuick($('console-quick'), CONSOLE_QUICK, (item, button) => {
       button.textContent = `กำลังกด... เหลือ ${left} วินาที`;
       sendConsole(item.key);
     }, 100);
+  } else if (item.reset) {
+    if (port && !busy) {
+      if (!rawListener) startLog();
+      resetBoard();
+    }
   } else if (item.key) {
     sendConsole(item.key);
   } else if (item.danger) {
@@ -296,5 +329,27 @@ if (!('serial' in navigator)) {
   $('connect').disabled = true;
 }
 navigator.serial?.addEventListener('disconnect', (e) => {
-  if (e.target === port) disconnect().then(() => setStatus('สายหลุด', 'err'));
+  if (e.target === port) disconnect().then(() => setStatus('สายหลุด เสียบใหม่ได้เลย จะเชื่อมต่อให้อัตโนมัติ', 'err'));
+});
+
+// เชื่อมต่ออัตโนมัติ: เบราว์เซอร์ให้เลือกพอร์ตเองครั้งแรกครั้งเดียว หลังจากนั้นเสียบสายเมื่อไหร่ก็เชื่อมต่อให้ทันที
+const autoConnect = () => $('auto-connect').checked;
+navigator.serial?.addEventListener('connect', (e) => autoConnect() && openPort(e.target));
+for (const id of ['auto-connect', 'auto-reset']) {
+  try {
+    const saved = localStorage.getItem(id);
+    if (saved !== null) $(id).checked = saved === '1';
+  } catch {
+    // เบราว์เซอร์ไม่ให้เก็บค่า ใช้ค่าเริ่มต้น
+  }
+  $(id).addEventListener('change', () => {
+    try {
+      localStorage.setItem(id, $(id).checked ? '1' : '0');
+    } catch {
+      // ไม่เป็นไร
+    }
+  });
+}
+navigator.serial?.getPorts().then((ports) => {
+  if (autoConnect() && ports.length) openPort(ports[0]);
 });

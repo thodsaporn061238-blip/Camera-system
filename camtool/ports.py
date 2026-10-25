@@ -8,11 +8,12 @@ KNOWN_USB = {
     (0x1782, 0x4D00): "Unisoc/Spreadtrum โหมดลงเฟิร์มแวร์ (download mode)",
     (0x1E0E, 0x9001): "SIMCom SIM7600",
     (0x1E0E, 0x9011): "SIMCom A7600",
-    (0x1A86, 0x7523): "สาย USB-TTL ชิป CH340",
-    (0x1A86, 0x55D4): "สาย USB-TTL ชิป CH9102",
-    (0x10C4, 0xEA60): "สาย USB-TTL ชิป CP210x",
+    (0x1A86, 0x7523): "ชิป CH340 (บอร์ด ESP32 ส่วนใหญ่ หรือสาย USB-TTL)",
+    (0x1A86, 0x55D4): "ชิป CH9102 (บอร์ด ESP32 หรือสาย USB-TTL)",
+    (0x10C4, 0xEA60): "ชิป CP210x (บอร์ด ESP32 หรือสาย USB-TTL)",
     (0x0403, 0x6001): "สาย USB-TTL ชิป FTDI",
     (0x067B, 0x2303): "สาย USB-TTL ชิป PL2303",
+    (0x303A, 0x1001): "ESP32-S3/C3 (USB ในตัวชิป)",
 }
 
 

@@ -79,7 +79,8 @@
     <h2>1. เชื่อมต่อกล้อง</h2>
     <ol class="muted">
       <li>เสียบสาย USB จากกล้องเข้าคอม (ติดตั้งไดรเวอร์ Quectel USB ก่อนถ้ายังไม่เคย)</li>
-      <li>กด "เชื่อมต่อ" แล้วเลือกพอร์ตที่ชื่อ <b>AT Port</b> (ถ้าไม่ตอบ ให้ตัดการเชื่อมต่อแล้วลองพอร์ตอื่น)</li>
+      <li>ครั้งแรก: กด "เชื่อมต่อ" แล้วเลือกพอร์ต (โมดูล 4G เลือกพอร์ตที่ชื่อ <b>AT Port</b>, บอร์ด ESP32 เลือก <b>USB-SERIAL CH340</b>)</li>
+      <li>ครั้งต่อไป: แค่เสียบสาย โปรแกรมเชื่อมต่อและเดาชนิดบอร์ดให้เอง ไม่ต้องกดอะไร</li>
     </ol>
     <div class="row" style="margin-top:12px">
       <label for="baud">ความเร็ว</label>
@@ -90,6 +91,10 @@
       <button id="connect" class="primary">เชื่อมต่อ</button>
       <button id="disconnect" disabled>ตัดการเชื่อมต่อ</button>
       <span id="status" class="status">ยังไม่ได้เชื่อมต่อ</span>
+    </div>
+    <div class="row muted" style="margin-top:8px">
+      <label><input id="auto-connect" type="checkbox" checked> เชื่อมต่ออัตโนมัติเมื่อเสียบสาย</label>
+      <label><input id="auto-reset" type="checkbox" checked> ถ้าบอร์ดไม่ตอบคำสั่ง AT ให้รีเซ็ตบอร์ดเพื่อดู log (ESP32)</label>
     </div>
   </section>
 
@@ -139,7 +144,7 @@
       <pre id="at-log"></pre>
     </section>
 
-    <section class="card needs-port">
+    <section id="console-section" class="card needs-port">
       <h2>7. log ตอนบูต และสั่งงานชิปหลัก (จุด TX/RX บนบอร์ด)</h2>
       <p class="muted">ใช้สาย USB-TTL แบบ 3.3V ต่อ GND, TX กล้อง → RX สาย, RX กล้อง → TX สาย เชื่อมต่อที่ความเร็ว 115200 แล้วกดเริ่ม จากนั้นเสียบไฟกล้องใหม่
         ถ้าตัวอักษรอ่านไม่ออก ให้ตัดการเชื่อมต่อแล้วลองความเร็วอื่น</p>
