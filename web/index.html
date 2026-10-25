@@ -81,6 +81,10 @@
   .preview { width: 320px; max-width: 100%; aspect-ratio: 4 / 3; border-radius: 6px; border: 6px solid #222; background: #000; }
   .small { font-size: 13px; }
   .file-btn { border: 1px solid var(--line); border-radius: 8px; padding: 8px 14px; cursor: pointer; }
+  .thai-cmd { margin-top: 12px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--code); }
+  .thai-cmd input[type=text] { font-family: inherit; font-size: 16px; }
+  #th-result div { margin-top: 2px; }
+  #th-result .ok { color: var(--ok); } #th-result .err { color: var(--err); }
   a { color: var(--accent); }
 </style>
 </head>
@@ -261,13 +265,23 @@
     <section class="card">
       <h2>10. ออกแบบหน้าจอ (เห็นผลบนจอทันที)</h2>
       <p class="muted">แก้ไฟล์ออกแบบด้านล่าง ภาพตัวอย่างและจอจริงจะเปลี่ยนตามทันที (ออกแบบได้แม้ยังไม่ต่อจอ) พอใจแล้วกด "บันทึกลงจอ" ใช้ได้กับโปรแกรม SNP TPMS (ขั้นที่ 9)
-        <b>อยากแก้เป็นภาษาไทย</b> ให้พิมพ์บอก Claude ในแชท เช่น "ทำตัวเลขล้อหน้าซ้ายสีฟ้า" แล้วเลือกแม่แบบที่ Claude เพิ่มให้จากรายการ
+        <b>สั่งเป็นภาษาไทย</b>ได้ในช่องด้านล่าง เช่น "เปลี่ยนสีตัวเลขล้อหน้าซ้ายเป็นฟ้า" ถ้าอยากได้แบบที่ช่องนี้ทำไม่ได้ พิมพ์บอก Claude ในแชทได้
         ตัวแปรที่ใช้ได้ดูใน <a href="https://github.com/thodsaporn061238-blip/Camera-system/blob/main/docs/LAYOUT.md" target="_blank" rel="noopener">คู่มือไฟล์ออกแบบ</a></p>
       <div class="row">
         <select id="layout-template" aria-label="แม่แบบหน้าจอ"><option value="">กำลังโหลดแม่แบบ...</option></select>
         <button id="layout-from-device">โหลดหน้าจอจากจอ</button>
         <label class="file-btn">เปิดไฟล์ .json <input id="layout-open" type="file" accept=".json" hidden></label>
         <button id="layout-download">ดาวน์โหลดไฟล์ออกแบบ</button>
+      </div>
+      <div class="thai-cmd">
+        <label for="th-cmd"><b>สั่งด้วยภาษาไทย</b> <span class="muted small">(หลายคำสั่งคั่นด้วยเครื่องหมาย , หรือขึ้นบรรทัดใหม่)</span></label>
+        <div class="row">
+          <input id="th-cmd" type="text" placeholder="เช่น เปลี่ยนสีตัวเลขล้อหน้าซ้ายเป็นฟ้า">
+          <button id="th-run" class="primary">ทำตาม</button>
+          <button id="th-undo" disabled>เลิกทำ</button>
+        </div>
+        <div id="th-examples" class="chips"></div>
+        <div id="th-result" class="small"></div>
       </div>
       <div class="designer">
         <textarea id="layout-json" spellcheck="false" aria-label="ไฟล์ออกแบบหน้าจอ (JSON)"></textarea>
