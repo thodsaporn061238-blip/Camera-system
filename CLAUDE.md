@@ -12,5 +12,5 @@
 
 1. ดึงโค้ดล่าสุด `git fetch origin main` แล้วเริ่มงานจาก `origin/main`
 2. อ่านไฟล์ที่จะแก้ให้ครบก่อนแก้
-3. ทดสอบก่อนบันทึก (`python -m unittest`)
+3. ทดสอบก่อนบันทึก (`python -m unittest` และ `node --test web/test/*.test.mjs`)
 4. commit และ push ขึ้น branch งาน แล้วเปิด PR เข้า `main` เมื่อผู้ใช้สั่ง
