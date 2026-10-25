@@ -63,6 +63,15 @@
   .chips button { padding: 4px 10px; font-size: 14px; border-radius: 999px; }
   .chips button.danger { border-color: var(--warn); color: var(--warn); }
   progress { width: 100%; margin-top: 12px; accent-color: var(--accent); }
+  .form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px 12px; }
+  .form-grid > .form-grid { grid-column: 1 / -1; }
+  .form-grid label { display: flex; flex-direction: column; gap: 2px; font-size: 15px; color: var(--muted); }
+  .form-grid label:has(input[type=checkbox]), .form-grid label:has(input[type=color]) { flex-direction: row; align-items: center; gap: 8px; }
+  .form-grid input[type=text], .form-grid input[type=number], .form-grid select {
+    font: inherit; color: var(--text); background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px;
+  }
+  input[type=color] { width: 40px; height: 30px; border: 1px solid var(--line); border-radius: 6px; padding: 0; background: none; }
+  #tpms-sensors td { white-space: pre-line; }
   a { color: var(--accent); }
 </style>
 </head>
@@ -192,6 +201,52 @@
       </div>
       <progress id="esp-progress" max="1" value="0" hidden></progress>
       <pre id="esp-log"></pre>
+    </section>
+
+    <section class="card needs-port">
+      <h2>9. จอลมยาง SNP TPMS (จอเหลือง)</h2>
+      <p class="muted">โปรแกรมจอแสดงลมยาง 4 ล้อที่เราเขียนเอง ลงครั้งเดียวแล้วเปลี่ยนชื่อ สี หน่วย และจับคู่เซนเซอร์จากหน้านี้ได้เลย ไม่ต้องลงโปรแกรมใหม่
+        <b>ก่อนลงครั้งแรก สำรองโปรแกรมเดิมในขั้นที่ 8 ก่อน</b></p>
+      <div class="row">
+        <button id="tpms-install" class="primary">ติดตั้ง / อัปเดตโปรแกรม SNP TPMS</button>
+        <span id="tpms-status" class="status">ยังไม่พบโปรแกรม SNP TPMS บนจอ</span>
+      </div>
+      <div id="tpms-form" hidden>
+        <h3>ข้อความบนจอ</h3>
+        <div class="form-grid">
+          <label>หัวข้อ <input id="tpms-title" type="text" maxlength="24"></label>
+          <div id="tpms-names" class="form-grid"></div>
+        </div>
+        <h3>หน่วยและเกณฑ์เตือน</h3>
+        <div class="form-grid">
+          <label>หน่วย <select id="tpms-unit"><option value="psi">PSI</option><option value="kpa">kPa</option><option value="bar">bar</option></select></label>
+          <label>ลมต่ำกว่า (PSI) <input id="tpms-low" type="number" step="0.5"></label>
+          <label>ลมสูงกว่า (PSI) <input id="tpms-high" type="number" step="0.5"></label>
+          <label>ร้อนกว่า (°C) <input id="tpms-hot" type="number" step="1"></label>
+        </div>
+        <h3>สี</h3>
+        <div id="tpms-colors" class="form-grid"></div>
+        <h3>จอและเสียง</h3>
+        <div class="form-grid">
+          <label>ความสว่าง <input id="tpms-bright" type="range" min="10" max="255"></label>
+          <label>ทิศจอ <select id="tpms-rot"><option value="1">ปกติ</option><option value="3">กลับหัว</option></select></label>
+          <label><input id="tpms-invert" type="checkbox"> กลับสีจอ (ถ้าสีเพี้ยน)</label>
+          <label><input id="tpms-buzzer" type="checkbox"> เสียงเตือนเมื่อลมผิดปกติ</label>
+        </div>
+        <div class="row" style="margin-top:12px">
+          <button id="tpms-send" class="primary">ส่งไปที่จอ</button>
+          <button id="tpms-get">อ่านค่าจากจอ</button>
+          <button id="tpms-beep">ทดสอบเสียง</button>
+          <button id="tpms-reset">คืนค่าเริ่มต้น</button>
+        </div>
+        <h3>เซนเซอร์ที่จอมองเห็น</h3>
+        <p class="muted">เลือก "ใช้กับล้อ..." เพื่อจับคู่ หรือกดค้างที่ช่องล้อบนจอ แล้วถือเซนเซอร์ไว้ใกล้จอ</p>
+        <div class="row muted">
+          <label><input id="tpms-raw" type="checkbox"> แสดงอุปกรณ์ Bluetooth ทั้งหมด (ใช้หาเซนเซอร์รุ่นที่ยังไม่รู้จัก)</label>
+          <button id="tpms-export">บันทึกข้อมูลเซนเซอร์เป็นไฟล์</button>
+        </div>
+        <table id="tpms-sensors"></table>
+      </div>
     </section>
   </div>
 </main>
