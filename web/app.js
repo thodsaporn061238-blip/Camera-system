@@ -14,6 +14,7 @@ let reader = null;
 let client = null;
 let rawListener = null; // ใช้ตอนบันทึก log ตอนบูต
 let busy = false;
+let espActive = false; // ระหว่างคุยกับ bootloader ของ ESP32 พอร์ตถูกยืมไป ห้ามเชื่อมต่ออัตโนมัติแทรก
 
 function setStatus(text, kind = '') {
   status.textContent = text;
@@ -48,7 +49,7 @@ async function readLoop() {
 
 // เปิดพอร์ตแล้วเดาว่าเป็นอุปกรณ์อะไร: ตอบคำสั่ง AT = โมดูล 4G, ไม่ตอบ = เปิดดูข้อความดิบในขั้นที่ 7 ให้อัตโนมัติ
 async function openPort(p) {
-  if (port) return;
+  if (port || espActive) return;
   try {
     await p.open({ baudRate: Number($('baud').value), bufferSize: 65536 });
   } catch (e) {
@@ -271,10 +272,7 @@ $('log-stop').onclick = () => {
   $('log-stop').disabled = true;
   $('log-save').disabled = logBytes.length === 0;
 };
-$('log-save').onclick = () => {
-  const stamp = new Date().toISOString().replace(/[-:]/g, '').replace('T', '-').slice(0, 15);
-  download(`console_${stamp}.log`, new Blob(logBytes));
-};
+$('log-save').onclick = () => download(`console_${stamp()}.log`, new Blob(logBytes));
 
 // ส่งข้อความเข้าชิปหลักผ่านจุด TX/RX (เริ่มบันทึก log ให้เองถ้ายังไม่ได้เริ่ม จะได้เห็นคำตอบ)
 async function sendConsole(text) {
@@ -331,6 +329,82 @@ if (!('serial' in navigator)) {
 navigator.serial?.addEventListener('disconnect', (e) => {
   if (e.target === port) disconnect().then(() => setStatus('สายหลุด เสียบใหม่ได้เลย จะเชื่อมต่อให้อัตโนมัติ', 'err'));
 });
+
+// ขั้นที่ 8: ยืมพอร์ตไปคุยกับ bootloader ของ ESP32 เสร็จแล้วเชื่อมต่อกลับให้เอง
+function espTask(task) {
+  if (!port || busy) return;
+  const out = $('esp-log');
+  const progress = $('esp-progress');
+  out.textContent = '';
+  run(out, async () => {
+    const p = port;
+    espActive = true;
+    await disconnect();
+    setStatus('กำลังคุยกับ bootloader ของ ESP32...', 'warn');
+    try {
+      const esp = await import('./esp32.js');
+      const onProgress = (done, total) => {
+        progress.hidden = false;
+        progress.value = total ? done / total : 0;
+      };
+      await esp.withEsp32(p, { baudrate: Number($('esp-baud').value), log: logger(out) },
+        (loader, chip) => task(esp, loader, chip, onProgress));
+    } catch (e) {
+      if (/connect|sync|timeout/i.test(e.message)) {
+        e.message += ' — ต่อ bootloader ไม่ติด: กดปุ่ม BOOT ค้าง กด RST 1 ครั้ง ปล่อย BOOT แล้วลองใหม่ หรือลดความเร็วเป็น 115200';
+      }
+      throw e;
+    } finally {
+      progress.hidden = true;
+      espActive = false;
+      await openPort(p);
+    }
+  });
+}
+
+const stamp = () => new Date().toISOString().replace(/[-:]/g, '').replace('T', '-').slice(0, 15);
+
+function showEspInfo(info) {
+  const table = $('esp-table');
+  table.innerHTML = '';
+  for (const [label, value] of [['ชิป', info.chip], ['ความสามารถ', info.features], ['คริสตัล', info.crystal],
+    ['MAC', info.mac], ['หน่วยความจำแฟลช', info.flashSize]]) {
+    const tr = table.insertRow();
+    tr.insertCell().textContent = label;
+    const td = tr.insertCell();
+    td.className = 'v';
+    td.textContent = value;
+  }
+}
+
+$('esp-info').onclick = () => espTask(async (esp, loader, chip) => {
+  showEspInfo(await esp.readChipInfo(loader, chip));
+});
+
+$('esp-backup').onclick = () => espTask(async (esp, loader, chip, onProgress) => {
+  const info = await esp.readChipInfo(loader, chip);
+  showEspInfo(info);
+  if (!info.flashBytes) throw new Error('อ่านขนาดหน่วยความจำแฟลชไม่ได้');
+  logger($('esp-log'))(`กำลังอ่านแฟลชทั้งหมด ${info.flashSize} อาจใช้เวลาหลายนาที ห้ามถอดสาย`);
+  const data = await esp.readWholeFlash(loader, info.flashBytes, onProgress);
+  const name = `esp32_${info.mac.replaceAll(':', '')}_${stamp()}.bin`;
+  download(name, new Blob([data], { type: 'application/octet-stream' }));
+  logger($('esp-log'))(`ดาวน์โหลดไฟล์ ${name} (${data.length} ไบต์) แล้ว เก็บไว้ให้ดี ใช้ลงกลับที่ตำแหน่ง 0x0`);
+});
+
+$('esp-write').onclick = () => {
+  const file = $('esp-file').files[0];
+  const address = Number($('esp-addr').value);
+  if (!file) return logger($('esp-log'))('เลือกไฟล์ .bin ก่อน');
+  const where = `0x${address.toString(16)}`;
+  if (!confirm(`จะลง ${file.name} ที่ตำแหน่ง ${where} ทับโปรแกรมเดิมในบอร์ด สำรองไว้แล้วใช่ไหม?`)) return;
+  espTask(async (esp, loader, _chip, onProgress) => {
+    const data = new Uint8Array(await file.arrayBuffer());
+    logger($('esp-log'))(`กำลังลง ${file.name} (${data.length} ไบต์) ที่ ${where} ห้ามถอดสาย`);
+    await esp.writeImage(loader, data, address, onProgress);
+    logger($('esp-log'))('ลงโปรแกรมเสร็จ บอร์ดจะรีสตาร์ทเอง ดู log ตอนบูตได้ในขั้นที่ 7');
+  });
+};
 
 // เชื่อมต่ออัตโนมัติ: เบราว์เซอร์ให้เลือกพอร์ตเองครั้งแรกครั้งเดียว หลังจากนั้นเสียบสายเมื่อไหร่ก็เชื่อมต่อให้ทันที
 const autoConnect = () => $('auto-connect').checked;

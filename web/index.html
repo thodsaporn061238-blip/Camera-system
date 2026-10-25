@@ -62,6 +62,7 @@
   .chips .group { width: 100%; font-size: 14px; color: var(--muted); margin-top: 4px; }
   .chips button { padding: 4px 10px; font-size: 14px; border-radius: 999px; }
   .chips button.danger { border-color: var(--warn); color: var(--warn); }
+  progress { width: 100%; margin-top: 12px; accent-color: var(--accent); }
   a { color: var(--accent); }
 </style>
 </head>
@@ -166,6 +167,31 @@
         </select>
         <button id="console-send">ส่ง</button>
       </div>
+    </section>
+
+    <section class="card needs-port">
+      <h2>8. บอร์ด ESP32: อ่านและลงโปรแกรม</h2>
+      <p class="muted">สำหรับบอร์ด ESP32 เช่น ESP32-2432S028 (จอเหลือง) ถ้าต่อไม่ติด ให้กดปุ่ม <b>BOOT</b> บนบอร์ดค้างไว้ กด <b>RST</b> 1 ครั้ง แล้วปล่อย BOOT จากนั้นลองใหม่
+        <b>สำรองโปรแกรมเดิมก่อนลงโปรแกรมใหม่ทุกครั้ง</b></p>
+      <div class="row">
+        <label for="esp-baud">ความเร็ว</label>
+        <select id="esp-baud"><option>115200</option><option selected>460800</option><option>921600</option></select>
+        <button id="esp-info" class="primary">อ่านข้อมูลชิป</button>
+        <button id="esp-backup" class="primary">สำรองโปรแกรมทั้งหมด (.bin)</button>
+      </div>
+      <table id="esp-table"></table>
+      <h3>ลงโปรแกรมใหม่</h3>
+      <div class="row">
+        <input id="esp-file" type="file" accept=".bin">
+        <label for="esp-addr">ตำแหน่ง</label>
+        <select id="esp-addr">
+          <option value="0">0x0 (ไฟล์สำรองทั้งก้อน / ไฟล์ merged)</option>
+          <option value="65536">0x10000 (ไฟล์โปรแกรมอย่างเดียว)</option>
+        </select>
+        <button id="esp-write">ลงโปรแกรม</button>
+      </div>
+      <progress id="esp-progress" max="1" value="0" hidden></progress>
+      <pre id="esp-log"></pre>
     </section>
   </div>
 </main>
