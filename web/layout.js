@@ -88,6 +88,106 @@ export function validateLayout(layout) {
   return errors;
 }
 
+// ---------- ตรวจหน้าจอก่อนส่งเข้าจอ ----------
+const hexToRgb = (s) => {
+  const m = /^#([0-9a-fA-F]{6})$/.exec(s ?? '');
+  if (!m) return null;
+  const n = parseInt(m[1], 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+};
+const luminance = ([r, g, b]) => {
+  const ch = (v) => {
+    const c = v / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * ch(r) + 0.7152 * ch(g) + 0.0722 * ch(b);
+};
+export function contrastRatio(a, b) {
+  const ra = hexToRgb(a);
+  const rb = hexToRgb(b);
+  if (!ra || !rb) return 21;
+  const [hi, lo] = [luminance(ra), luminance(rb)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+// ตัวอักษรที่ฟอนต์บนจอมี (สร้างใน tools/gen_fonts.sh)
+const TEXT_CHARS = /^[\x20-\x7E°ก-๛]*$/;
+const NUMBER_CHARS = /^[0-9.\-]*$/;
+
+const describeItem = (it, i) => {
+  const t = (it.type ?? 'text') === 'box' ? 'กล่อง' : `ข้อความ "${String(it.text ?? '').slice(0, 20)}"`;
+  return `ชิ้นที่ ${i + 1} (${t})`;
+};
+
+// ตรวจหน้าจอทั้งชุด: errors = ส่งเข้าจอไม่ได้, warnings = ส่งได้แต่ควรแก้
+// lookup = makeLookup(...) สำหรับแทนค่าตัวอย่าง, measure(text, font) = ความกว้างข้อความ (ไม่ส่งมาจะข้ามการตรวจความยาว)
+export function checkLayout(layout, lookup, measure) {
+  const errors = validateLayout(layout);
+  const warnings = [];
+  const problems = new Set();  // ลำดับชิ้นที่มีปัญหา ใช้วาดกรอบเตือนบนภาพตัวอย่าง
+  if (errors.length) return { errors, warnings, problems };
+  if (!layout.items.length) errors.push('หน้าจอว่าง ไม่มีชิ้นส่วนเลย');
+  const ex = (t) => expandTemplate(t, lookup);
+  const items = layout.items;
+
+  items.forEach((it, i) => {
+    const name = describeItem(it, i);
+    const fields = (it.type ?? 'text') === 'box' ? ['bg', 'border'] : ['text', 'color'];
+    for (const f of fields) {
+      const left = ex(it[f] ?? '').match(/\{[^{}]*\}/);
+      if (it[f] !== undefined && left) {
+        errors.push(`${name}: ตัวแปร ${left[0]} พิมพ์ผิดหรือไม่มีอยู่จริง`);
+        problems.add(i);
+      }
+    }
+    for (const f of fields.filter((k) => k !== 'text')) {
+      if (it[f] !== undefined && !hexToRgb(ex(it[f]))) {
+        errors.push(`${name}: สี "${it[f]}" ต้องเป็นแบบ #RRGGBB`);
+        problems.add(i);
+      }
+    }
+    const x = it.x ?? 0;
+    const y = it.y ?? 0;
+    if ((it.type ?? 'text') === 'box') {
+      if (x + (it.w || 20) > SCREEN.w || y + (it.h || 20) > SCREEN.h) {
+        warnings.push(`${name}: ล้นขอบจอ (กว้างได้ถึง 320 สูงได้ถึง 240)`);
+        problems.add(i);
+      }
+      return;
+    }
+    const size = fontSize(it.font ?? 16);
+    const shown = ex(it.text ?? '');
+    if (size === 48 && !NUMBER_CHARS.test(shown)) {
+      warnings.push(`${name}: ขนาด 48 แสดงได้แค่ตัวเลข จุด และขีด ตัวอื่นจะไม่ขึ้นบนจอ (ใช้ขนาด 24 แทน)`);
+      problems.add(i);
+    } else if (!TEXT_CHARS.test(shown)) {
+      const bad = [...shown].filter((c) => !TEXT_CHARS.test(c));
+      warnings.push(`${name}: จอไม่มีตัวอักษร ${[...new Set(bad)].join(' ')} จะขึ้นเป็นช่องว่าง`);
+      problems.add(i);
+    }
+    if (y + size * 1.2 > SCREEN.h + 2) {
+      warnings.push(`${name}: ตกขอบล่างของจอ`);
+      problems.add(i);
+    }
+    if (measure && it.w && !it.scroll && measure(shown, size) > it.w + 1) {
+      warnings.push(`${name}: ข้อความยาวเกินช่อง (กว้าง ${it.w}) จะขึ้นบรรทัดใหม่ ใส่ "scroll": true ถ้าอยากให้เลื่อนวิ่ง`);
+      problems.add(i);
+    }
+    // สีตัวหนังสือเทียบกับพื้นที่อยู่ข้างใต้ (กล่องล่าสุดที่ครอบจุดเริ่มข้อความ หรือพื้นหลังจอ)
+    const px = x + Math.min(it.w || 10, 10);
+    const py = y + size / 2;
+    const under = items.slice(0, i).reverse().find((b) => b.type === 'box'
+      && px >= (b.x ?? 0) && px <= (b.x ?? 0) + (b.w || 20) && py >= (b.y ?? 0) && py <= (b.y ?? 0) + (b.h || 20));
+    const bg = ex(under ? under.bg ?? '{c.tile}' : layout.bg ?? '{c.bg}');
+    const ratio = contrastRatio(ex(it.color ?? '{c.text}'), bg);
+    if (shown.trim() && ratio < 1.6) {
+      warnings.push(`${name}: สีตัวหนังสือกลืนกับพื้น มองแทบไม่เห็น`);
+      problems.add(i);
+    }
+  });
+  return { errors, warnings, problems };
+}
+
 const FONT_WEIGHT = { 16: 500, 24: 600, 48: 600 };
 const fontSize = (n) => (n >= 40 ? 48 : n >= 20 ? 24 : 16);
 

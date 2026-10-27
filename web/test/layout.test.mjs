@@ -67,3 +67,44 @@ test('แม่แบบทุกไฟล์ใน firmware/tpms/layouts ใช
     }
   }
 });
+
+import { checkLayout, contrastRatio } from '../layout.js';
+
+const measure = (text, size) => [...text].length * size * 0.55;
+
+test('checkLayout: แม่แบบทุกไฟล์ผ่านการตรวจ ไม่มีทั้งข้อผิดพลาดและคำเตือน', () => {
+  const dir = new URL('../../firmware/tpms/layouts/', import.meta.url);
+  const index = JSON.parse(readFileSync(new URL('index.json', dir), 'utf8'));
+  for (const t of index) {
+    const layout = JSON.parse(readFileSync(new URL(t.file, dir), 'utf8'));
+    const r = checkLayout(layout, makeLookup({ cfg, readings: SAMPLE_READINGS }), measure);
+    assert.deepEqual([...r.errors, ...r.warnings], [], t.file);
+  }
+});
+
+test('checkLayout: จับปัญหาที่ทำให้จอแสดงผิด', () => {
+  const look = makeLookup({ cfg, readings: SAMPLE_READINGS });
+  const r = checkLayout({
+    bg: '#000000',
+    items: [
+      { type: 'text', x: 0, y: 0, text: '{fl.pp}' },                                    // ตัวแปรผิด -> error
+      { type: 'text', x: 0, y: 20, font: 48, text: 'PSI {fl.p}' },                       // 48 มีแค่ตัวเลข
+      { type: 'box', x: 300, y: 200, w: 50, h: 50, bg: '#FFFFFF' },                      // ล้นขอบ
+      { type: 'text', x: 0, y: 60, color: '#050505', text: 'มืด' },                      // กลืนกับพื้นดำ
+      { type: 'text', x: 0, y: 90, text: 'รถ 🚚' },                                      // ไม่มีตัวอักษรนี้
+      { type: 'text', x: 0, y: 120, w: 40, text: 'ข้อความยาวมากเกินช่อง' },               // ยาวเกินช่อง
+      { type: 'text', x: 0, y: 150, color: 'ฟ้า', text: 'x' },                           // สีผิดรูปแบบ -> error
+    ],
+  }, look, measure);
+  assert.equal(r.errors.length, 2, r.errors.join('\n'));
+  assert.match(r.errors[0], /\{fl\.pp\}/);
+  assert.match(r.errors[1], /#RRGGBB/);
+  assert.equal(r.warnings.length, 5, r.warnings.join('\n'));
+  assert.deepEqual([...r.problems].sort(), [0, 1, 2, 3, 4, 5, 6]);
+  assert.match(checkLayout({ items: [] }, look).errors[0], /ว่าง/);
+});
+
+test('contrastRatio', () => {
+  assert.ok(contrastRatio('#FFFFFF', '#000000') > 20);
+  assert.ok(contrastRatio('#000000', '#050505') < 1.2);
+});
