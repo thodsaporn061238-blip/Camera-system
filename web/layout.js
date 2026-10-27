@@ -188,8 +188,18 @@ export function checkLayout(layout, lookup, measure) {
   return { errors, warnings, problems };
 }
 
-const FONT_WEIGHT = { 16: 500, 24: 600, 48: 600 };
-const fontSize = (n) => (n >= 40 ? 48 : n >= 20 ? 24 : 16);
+// กรอบของชิ้นบนจอ {x, y, w, h} ใช้วาดกรอบเตือนบนภาพตัวอย่าง
+export function itemBounds(it, lookup, measure) {
+  const x = it.x ?? 0;
+  const y = it.y ?? 0;
+  if ((it.type ?? 'text') === 'box') return { x, y, w: it.w || 20, h: it.h || 20 };
+  const size = fontSize(it.font ?? 16);
+  const w = it.w || (measure ? measure(expandTemplate(it.text, lookup), size) : size);
+  return { x, y, w: Math.max(w, 4), h: size * 1.2 };
+}
+
+export const FONT_WEIGHT = { 16: 500, 24: 600, 48: 600 };
+export const fontSize = (n) => (n >= 40 ? 48 : n >= 20 ? 24 : 16);
 
 // วาดภาพตัวอย่างจอลง canvas ขนาด 320x240 (ข้อความที่เลื่อนวิ่งบนจอจริง จะถูกตัดท้ายด้วย …)
 export function renderPreview(ctx, layout, lookup) {

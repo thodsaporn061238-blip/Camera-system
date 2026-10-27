@@ -1,6 +1,6 @@
 // ขั้นที่ 10: ออกแบบหน้าจอ (แก้แล้วเห็นผลบนจอจริงทันที) และขั้นที่ 11: ไฟล์ในบอร์ด
 // คุยกับโปรแกรม SNP TPMS ผ่าน request(cmd, match) ที่ app.js ส่งมา
-import { SAMPLE_READINGS, SCREEN, makeLookup, renderPreview, validateLayout } from './layout.js';
+import { FONT_WEIGHT, SAMPLE_READINGS, SCREEN, checkLayout, itemBounds, makeLookup, renderPreview } from './layout.js';
 import { THAI_EXAMPLES, applyThaiCommands } from './thai_commands.js';
 import { createZip } from './zip.js';
 
@@ -34,6 +34,17 @@ export function initDesigner({ request, isReady }) {
   let layout = null;
   let liveTimer = null;
   let lastSent = '';
+  let check = { errors: [], warnings: [], problems: new Set() };
+  let touched = false;  // แก้ไปแล้วหลังโหลดจากจอ (โหลดอัตโนมัติจะไม่ทับงานที่แก้อยู่)
+  let testing = false;  // จอแสดงแบบทดลองที่ยังไม่บันทึก
+  let testedText = '';  // แบบที่ทดลองบนจอล่าสุด
+
+  // วัดความกว้างข้อความด้วยฟอนต์เดียวกับภาพตัวอย่าง
+  const measureCtx = document.createElement('canvas').getContext('2d');
+  const measure = (text, size) => {
+    measureCtx.font = `${FONT_WEIGHT[size]} ${size}px Sarabun, sans-serif`;
+    return measureCtx.measureText(text).width;
+  };
 
   const canvas = $('layout-preview');
   const ctx = canvas.getContext('2d');
@@ -47,48 +58,112 @@ export function initDesigner({ request, isReady }) {
     $('layout-msg').className = `status ${kind}`;
   };
 
+  const currentLookup = () => {
+    const live = readings.some(Boolean);
+    return makeLookup({ cfg, readings: !live && $('layout-sample').checked ? SAMPLE_READINGS : readings });
+  };
+
   function redraw() {
     if (!layout) return;
-    const live = readings.some(Boolean);
-    const lookup = makeLookup({ cfg, readings: !live && $('layout-sample').checked ? SAMPLE_READINGS : readings });
+    const lookup = currentLookup();
     renderPreview(ctx, layout, lookup);
+    // กรอบแดงรอบชิ้นที่มีปัญหา
+    ctx.save();
+    ctx.strokeStyle = '#FF2D2D';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([4, 3]);
+    for (const i of check.problems) {
+      const b = itemBounds(layout.items[i], lookup, measure);
+      ctx.strokeRect(b.x + 0.5, b.y + 0.5, b.w - 1, b.h - 1);
+    }
+    ctx.restore();
   }
 
-  // อ่านข้อความในช่องแก้ไข ตรวจ วาดภาพตัวอย่าง แล้วส่งเข้าจอ (ถ้าเปิด "ส่งไปที่จอทันที")
+  function showCheck(lines) {
+    const box = $('layout-check');
+    box.innerHTML = '';
+    for (const [kind, text] of lines) {
+      const div = document.createElement('div');
+      div.className = kind;
+      div.textContent = `${{ ok: '✓', warn: '⚠', err: '✗' }[kind]} ${text}`;
+      box.append(div);
+    }
+  }
+
+  function runCheck() {
+    check = checkLayout(layout, currentLookup(), measure);
+    const lines = [
+      ...check.errors.map((t) => ['err', t]),
+      ...check.warnings.map((t) => ['warn', t]),
+    ];
+    if (!lines.length) lines.push(['ok', `ตรวจแล้ว ไม่พบปัญหา (${layout.items.length} ชิ้น) ส่งเข้าจอได้`]);
+    else lines.unshift([check.errors.length ? 'err' : 'warn', check.errors.length
+      ? `พบข้อผิดพลาด ${check.errors.length} ข้อ ต้องแก้ก่อนส่งเข้าจอ`
+      : `ส่งได้ แต่มีคำเตือน ${check.warnings.length} ข้อ`]);
+    showCheck(lines);
+  }
+
+  // อ่านข้อความในช่องแก้ไข ตรวจ วาดภาพตัวอย่าง แล้วทดลองบนจอ (ถ้าเปิด "ทดลองบนจอทุกครั้งที่แก้")
   function onEdit() {
     let obj;
     try {
       obj = JSON.parse($('layout-json').value);
     } catch (e) {
-      msg(`ยังไม่ถูกรูปแบบ JSON: ${e.message}`, 'err');
+      check = { errors: ['ยังไม่ถูกรูปแบบ JSON'], warnings: [], problems: new Set() };
+      showCheck([['err', `ยังไม่ถูกรูปแบบ JSON: ${e.message}`]]);
       return;
     }
-    const errors = validateLayout(obj);
-    if (errors.length) {
-      msg(errors.slice(0, 3).join(' · '), 'err');
+    if (!obj || typeof obj !== 'object' || !Array.isArray(obj.items)) {
+      layout = null;
+      check = checkLayout(obj, currentLookup(), measure);
+      showCheck(check.errors.map((t) => ['err', t]));
       return;
     }
     layout = obj;
-    redraw();
-    if ($('layout-live').checked && isReady()) {
+    runCheck();
+    try {
+      redraw();
+    } catch {
+      // ชิ้นที่ผิดรูปแบบมาก (เช่น ไม่ใช่ { ... }) วาดไม่ได้ รายการ ✗ บอกแล้วว่าต้องแก้อะไร
+    }
+    if ($('layout-live').checked && isReady() && !check.errors.length) {
       clearTimeout(liveTimer);
       liveTimer = setTimeout(() => sendLayout(false), 400);
-    } else {
-      msg(`ใช้ได้ (${obj.items.length} ชิ้น)`, 'ok');
     }
   }
 
   async function sendLayout(save) {
-    if (!layout) return;
+    if (!layout) return msg('แก้ไฟล์ออกแบบให้ถูกต้องก่อน', 'err');
     if (!isReady()) return msg('ยังไม่พบโปรแกรม SNP TPMS บนจอ (เชื่อมต่อก่อน)', 'warn');
+    runCheck();
+    if (check.errors.length) {
+      msg(`ยังส่งเข้าจอไม่ได้: มีข้อผิดพลาด ${check.errors.length} ข้อ (ดูรายการ ✗ ใต้ภาพตัวอย่าง)`, 'err');
+      return;
+    }
+    if (save && check.warnings.length
+      && !confirm(`มีคำเตือน ${check.warnings.length} ข้อ:\n\n${check.warnings.slice(0, 6).join('\n')}\n\nบันทึกลงจอทั้งอย่างนี้?`)) return;
     const text = JSON.stringify(layout);
+    if (save && text !== testedText && !confirm('แบบนี้ยังไม่ได้ทดลองบนจอ บันทึกเลยไหม?\n(กด "ยกเลิก" แล้วกด "ทดลองบนจอ" เพื่อดูของจริงก่อน)')) return;
     if (!save && text === lastSent) return;
     lastSent = text;
-    msg(save ? 'กำลังบันทึกลงจอ...' : 'กำลังส่งไปที่จอ...', 'warn');
+    msg(save ? 'กำลังบันทึกลงจอ...' : 'กำลังส่งไปทดลองบนจอ...', 'warn');
     try {
       const res = await request({ layout, save }, (o) => o.layout_ok || o.layout_err, 8000);
-      if (res.layout_err) msg(`จอไม่รับ: ${res.layout_err}`, 'err');
-      else msg(res.layout_ok.saved ? 'บันทึกลงจอแล้ว ดับไฟแล้วยังอยู่' : `จอเปลี่ยนแล้ว (${res.layout_ok.items} ชิ้น) ยังไม่ได้บันทึก`, 'ok');
+      if (res.layout_err) {
+        lastSent = '';
+        return msg(`จอไม่รับ: ${res.layout_err}`, 'err');
+      }
+      if (res.layout_ok.saved) {
+        testing = false;
+        testedText = '';
+        touched = false;
+        msg('บันทึกลงจอแล้ว ดับไฟแล้วยังอยู่', 'ok');
+      } else {
+        testing = true;
+        testedText = text;
+        msg(`จอแสดงแบบทดลองแล้ว (${res.layout_ok.items} ชิ้น) ยังไม่ได้บันทึก ดูที่จอจริงแล้วกด "บันทึกลงจอ" หรือ "ยกเลิกการทดลอง"`, 'ok');
+      }
+      $('layout-cancel').disabled = !testing;
     } catch (e) {
       lastSent = '';
       msg(`จอไม่ตอบ: ${e.message}`, 'err');
@@ -99,6 +174,25 @@ export function initDesigner({ request, isReady }) {
     $('layout-json').value = JSON.stringify(obj, null, 2);
     lastSent = '';
     onEdit();
+  }
+
+  // ดึงหน้าจอที่จอใช้อยู่ตอนนี้ (และค่าตั้ง) มาแก้ต่อ
+  async function loadFromDevice(auto = false) {
+    if (!isReady()) return msg('ยังไม่พบโปรแกรม SNP TPMS บนจอ (เชื่อมต่อก่อน)', 'warn');
+    if (auto && touched) {
+      return msg('พบจอแล้ว ยังไม่ได้โหลดหน้าจอจากจอเพราะกำลังแก้อยู่ กด "โหลดหน้าจอจากจอ" ถ้าต้องการแก้ต่อจากของในจอ', 'warn');
+    }
+    if (!auto && touched && !confirm('แทนที่สิ่งที่แก้อยู่ด้วยหน้าจอที่อยู่ในจอ? (กด "เลิกทำ" ย้อนกลับได้)')) return;
+    try {
+      const res = await request({ get: 'layout' }, (o) => o.layout, 8000);
+      if ($('layout-json').value) remember();
+      setLayoutText(res.layout);
+      touched = false;
+      lastSent = JSON.stringify(layout);
+      msg(`${auto ? 'พบจอแล้ว ' : ''}โหลดหน้าจอที่จอใช้อยู่แล้ว แก้ต่อได้เลย`, 'ok');
+    } catch (e) {
+      msg(`โหลดจากจอไม่ได้: ${e.message}`, 'err');
+    }
   }
 
   async function loadTemplates() {
@@ -125,6 +219,7 @@ export function initDesigner({ request, isReady }) {
     }
   };
   function remember() {
+    touched = true;
     history.push($('layout-json').value);
     if (history.length > 50) history.shift();
     $('th-undo').disabled = false;
@@ -169,7 +264,10 @@ export function initDesigner({ request, isReady }) {
     $('th-examples').append(b);
   }
 
-  $('layout-json').addEventListener('input', onEdit);
+  $('layout-json').addEventListener('input', () => {
+    touched = true;
+    onEdit();
+  });
   $('layout-sample').onchange = redraw;
   $('layout-template').onchange = async () => {
     const file = $('layout-template').value;
@@ -183,19 +281,29 @@ export function initDesigner({ request, isReady }) {
     sendLayout(false);
   };
   $('layout-save').onclick = () => sendLayout(true);
-  $('layout-from-device').onclick = async () => {
+  $('layout-from-device').onclick = () => loadFromDevice(false);
+  // เลิกแบบทดลอง จอกลับไปใช้แบบที่บันทึกไว้ (ช่องแก้ไขยังเก็บงานไว้ให้แก้ต่อ)
+  $('layout-cancel').onclick = async () => {
+    if (!isReady()) return msg('ยังไม่พบโปรแกรม SNP TPMS บนจอ (เชื่อมต่อก่อน)', 'warn');
     try {
-      const res = await request({ get: 'layout' }, (o) => o.layout, 8000);
-      setLayoutText(res.layout);
-      msg('โหลดหน้าจอจากจอแล้ว', 'ok');
+      const res = await request({ reload: 'layout' }, (o) => o.layout_ok || o.layout_err, 8000);
+      if (res.layout_err) return msg(`จอไม่รับ: ${res.layout_err}`, 'err');
+      testing = false;
+      testedText = '';
+      lastSent = '';
+      $('layout-cancel').disabled = true;
+      msg('ยกเลิกการทดลองแล้ว จอกลับไปใช้แบบที่บันทึกไว้ งานในช่องแก้ไขยังอยู่', 'ok');
     } catch (e) {
-      msg(`โหลดจากจอไม่ได้: ${e.message}`, 'err');
+      msg(`จอไม่ตอบ: ${e.message}`, 'err');
     }
   };
   $('layout-reset').onclick = async () => {
     if (!confirm('คืนหน้าจอเป็นแบบเริ่มต้น (ลบหน้าจอที่บันทึกไว้ในจอ)?')) return;
     try {
       await request({ reset: 'layout' }, (o) => o.layout_ok || o.layout_err, 8000);
+      testing = false;
+      testedText = '';
+      $('layout-cancel').disabled = true;
       msg('คืนหน้าจอเริ่มต้นแล้ว', 'ok');
     } catch (e) {
       msg(`จอไม่ตอบ: ${e.message}`, 'err');
@@ -205,7 +313,9 @@ export function initDesigner({ request, isReady }) {
   $('layout-open').onchange = async () => {
     const f = $('layout-open').files[0];
     if (f) {
+      if ($('layout-json').value) remember();
       $('layout-json').value = await f.text();
+      touched = true;
       onEdit();
     }
   };
@@ -336,8 +446,16 @@ export function initDesigner({ request, isReady }) {
 
   return {
     onMessage(obj) {
+      // เสียบจอแล้วพบโปรแกรม SNP TPMS: ดึงหน้าจอที่ใช้อยู่มาแก้ต่อ (รอให้ app.js ตั้งค่าว่าพร้อมก่อน)
+      if (obj.hello?.app === 'snp-tpms' && obj.hello.layout) {
+        testing = false;
+        testedText = '';
+        $('layout-cancel').disabled = true;
+        setTimeout(() => loadFromDevice(true), 0);
+      }
       if (obj.cfg) {
         cfg = { ...DEFAULT_CFG, ...obj.cfg, colors: { ...DEFAULT_CFG.colors, ...obj.cfg.colors } };
+        if (layout) runCheck();  // สีและชื่อจากจอจริงเปลี่ยนผลตรวจได้ (เช่น สีกลืนกับพื้น)
         redraw();
       }
       if (obj.sensor && obj.sensor.wheel >= 0 && obj.sensor.format) {

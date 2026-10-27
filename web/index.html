@@ -85,6 +85,10 @@
   .thai-cmd input[type=text] { font-family: inherit; font-size: 16px; }
   #th-result div { margin-top: 2px; }
   #th-result .ok { color: var(--ok); } #th-result .err { color: var(--err); }
+  .steps { margin: 4px 0 8px; padding-left: 22px; color: var(--muted); }
+  .check { margin-top: 8px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--code); max-height: 220px; overflow: auto; }
+  .check div { margin-top: 2px; }
+  .check .ok { color: var(--ok); } .check .err { color: var(--err); } .check .warn { color: var(--warn); }
   a { color: var(--accent); }
 </style>
 </head>
@@ -263,8 +267,15 @@
     </section>
 
     <section class="card">
-      <h2>10. ออกแบบหน้าจอ (เห็นผลบนจอทันที)</h2>
-      <p class="muted">แก้ไฟล์ออกแบบด้านล่าง ภาพตัวอย่างและจอจริงจะเปลี่ยนตามทันที (ออกแบบได้แม้ยังไม่ต่อจอ) พอใจแล้วกด "บันทึกลงจอ" ใช้ได้กับโปรแกรม SNP TPMS (ขั้นที่ 9)
+      <h2>10. ออกแบบหน้าจอ (ดึงจากจอ แก้ต่อ ตรวจ ทดลอง แล้วบันทึก)</h2>
+      <ol class="steps small">
+        <li><b>ดึงหน้าจอปัจจุบัน</b> เสียบจอแล้วหน้าจอที่ใช้อยู่จะโหลดเข้าช่องแก้ไขให้เอง (หรือกด "โหลดหน้าจอจากจอ")</li>
+        <li><b>แก้ต่อ</b> ด้วยคำสั่งภาษาไทย หรือแก้ข้อความ JSON ภาพตัวอย่างเปลี่ยนทันที</li>
+        <li><b>ตรวจ</b> ระบบตรวจทุกครั้งที่แก้ ถ้ามี ✗ จะส่งเข้าจอไม่ได้ ชิ้นที่มีปัญหามีกรอบแดงในภาพตัวอย่าง</li>
+        <li><b>ทดลองบนจอ</b> ดูของจริงก่อน (ยังไม่บันทึก ดับไฟแล้วกลับเป็นแบบเดิม) ไม่ชอบกด "ยกเลิกการทดลอง"</li>
+        <li><b>บันทึกลงจอ</b> เมื่อพอใจ</li>
+      </ol>
+      <p class="muted">ออกแบบได้แม้ยังไม่ต่อจอ ใช้ได้กับโปรแกรม SNP TPMS (ขั้นที่ 9)
         <b>สั่งเป็นภาษาไทย</b>ได้ในช่องด้านล่าง เช่น "เปลี่ยนสีตัวเลขล้อหน้าซ้ายเป็นฟ้า" ถ้าอยากได้แบบที่ช่องนี้ทำไม่ได้ พิมพ์บอก Claude ในแชทได้
         ตัวแปรที่ใช้ได้ดูใน <a href="https://github.com/thodsaporn061238-blip/Camera-system/blob/main/docs/LAYOUT.md" target="_blank" rel="noopener">คู่มือไฟล์ออกแบบ</a></p>
       <div class="row">
@@ -289,13 +300,15 @@
           <canvas id="layout-preview" class="preview"></canvas>
           <div class="muted small" id="layout-xy">ตำแหน่งเมาส์ x=- y=-</div>
           <label class="muted small"><input id="layout-sample" type="checkbox" checked> ใช้ค่าตัวอย่างเมื่อยังไม่มีเซนเซอร์จริง</label>
+          <div id="layout-check" class="check small" aria-live="polite"></div>
         </div>
       </div>
       <div class="row" style="margin-top:10px">
-        <label><input id="layout-live" type="checkbox" checked> ส่งไปที่จอทันทีที่แก้</label>
-        <button id="layout-send">ส่งไปที่จอ</button>
+        <button id="layout-send">ทดลองบนจอ (ยังไม่บันทึก)</button>
+        <button id="layout-cancel" disabled>ยกเลิกการทดลอง</button>
         <button id="layout-save" class="primary">บันทึกลงจอ</button>
         <button id="layout-reset">คืนหน้าจอเริ่มต้น</button>
+        <label class="small"><input id="layout-live" type="checkbox"> ทดลองบนจอทุกครั้งที่แก้</label>
       </div>
       <p id="layout-msg" class="status" style="margin-top:8px"></p>
     </section>

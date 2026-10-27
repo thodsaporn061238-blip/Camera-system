@@ -68,7 +68,7 @@ test('แม่แบบทุกไฟล์ใน firmware/tpms/layouts ใช
   }
 });
 
-import { checkLayout, contrastRatio } from '../layout.js';
+import { checkLayout, contrastRatio, itemBounds } from '../layout.js';
 
 const measure = (text, size) => [...text].length * size * 0.55;
 
@@ -102,6 +102,13 @@ test('checkLayout: จับปัญหาที่ทำให้จอแส�
   assert.equal(r.warnings.length, 5, r.warnings.join('\n'));
   assert.deepEqual([...r.problems].sort(), [0, 1, 2, 3, 4, 5, 6]);
   assert.match(checkLayout({ items: [] }, look).errors[0], /ว่าง/);
+});
+
+test('itemBounds: กล่องใช้ขนาดตัวเอง ข้อความใช้ w หรือความยาวข้อความ', () => {
+  const look = makeLookup({ cfg, readings: SAMPLE_READINGS });
+  assert.deepEqual(itemBounds({ type: 'box', x: 5, y: 6, w: 30, h: 40 }, look), { x: 5, y: 6, w: 30, h: 40 });
+  assert.deepEqual(itemBounds({ x: 1, y: 2, w: 100, font: 24, text: 'a' }, look, measure), { x: 1, y: 2, w: 100, h: 24 * 1.2 });
+  assert.equal(itemBounds({ text: '{fl.p}' }, look, measure).w, 4 * 16 * 0.55);
 });
 
 test('contrastRatio', () => {
